@@ -8,13 +8,21 @@ Todo 画面、Todo の端末内保存、分類・期限フィルター、並び�
 
 ## 起動方法
 
-外部依存パッケージはありません。ES モジュールを使用するため、リポジトリのルートで静的 HTTP サーバーを起動してください。
+外部依存パッケージはありません。開発時はリポジトリのルートで静的 HTTP サーバーを起動してください。
 
 ```sh
 python3 -m http.server 8000
 ```
 
 その後、ブラウザーで `http://localhost:8000` を開きます。Cloudflare Pages ではリポジトリのルートを静的サイトとして配信する構成を想定しています。
+
+デプロイ用ファイルは次のコマンドで `dist/` に作成します。仕様書やテストは配信物に含めません。
+
+```sh
+npm run build
+```
+
+Cloudflare Pages の Git 連携では、Framework preset を `None`、Build command を `npm run build`、Build output directory を `dist` に設定します。Root directory はリポジトリルートのままにします。
 
 ## 構成
 
