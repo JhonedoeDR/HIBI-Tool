@@ -5,6 +5,10 @@ import {
   getLocalDateKey,
 } from "../features/todo/todoService.js";
 import { getRoutineLabel } from "../features/todo/routineService.js";
+import {
+  formatReminderTime,
+  getTodoReminderSchedule,
+} from "../features/notifications/notificationService.js";
 
 const CATEGORY_OPTIONS = [
   ["main", "メイン"],
@@ -88,6 +92,7 @@ function renderHeading(state) {
     element("p", "eyebrow", "YOUR DAILY FLOW"),
     element("h1", "", "Todo"),
     element("p", "page-description", "小さな一歩を、今日の前進に。"),
+    element("p", "page-description", "通知予定時刻の表示のみ対応しています。実際の通知配信は未実装です。"),
   );
   const addButton = actionButton("＋ Todoを追加", "primary-button", "new-todo");
   addButton.disabled = !state.storageReady;
@@ -275,6 +280,16 @@ function renderTodoMeta(todo, notStarted) {
     meta.append(element("span", "", `期限 ${formatDate(todo.dueDate)}`));
   } else {
     meta.append(element("span", "", "期限なし"));
+  }
+  const nextReminder = getTodoReminderSchedule(todo)[0];
+  if (nextReminder) {
+    meta.append(
+      element(
+        "span",
+        "",
+        `次の通知予定 ${formatReminderTime(nextReminder.scheduledAt)}（${nextReminder.labels.join("・")}）`,
+      ),
+    );
   }
   if (todo.routineRule) {
     meta.append(element("span", "", `周期 ${getRoutineLabel(todo.routineRule)}`));

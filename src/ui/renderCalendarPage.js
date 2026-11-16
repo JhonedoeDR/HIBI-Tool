@@ -1,5 +1,9 @@
 import { getCalendarDays, formatEventTime } from "../features/calendar/calendarService.js";
 import { expandTodoSelection } from "../features/todo/todoService.js";
+import {
+  formatReminderTime,
+  getCalendarReminderSchedule,
+} from "../features/notifications/notificationService.js";
 import { renderSidebar } from "./renderTodoPage.js";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -89,7 +93,7 @@ export function renderCalendarPage(state) {
     make(
       "p",
       "calendar-note",
-      "カレンダーの内容は端末内に保存されます。Google Calendar同期と実際の通知は未実装です。",
+      "カレンダーの内容は端末内に保存されます。通知時刻は表示されますが、実際の通知配信とGoogle Calendar同期は未実装です。",
     ),
   );
 
@@ -270,6 +274,15 @@ function renderEventDetailsDialog(state) {
     );
     info.append(detailRow("通知設定", reminderLabels.join("、") || "なし"));
   }
+  const reminderSchedule = getCalendarReminderSchedule(event);
+  const reminderText = reminderSchedule.length
+    ? reminderSchedule
+        .map((reminder) => `${formatReminderTime(reminder.scheduledAt)}（${reminder.labels.join("・")}）`)
+        .join("、")
+    : event.completed
+      ? "完了済みのため停止中"
+      : "今後の通知予定なし";
+  info.append(detailRow("通知予定", reminderText));
   const linkedTodoTitles = event.todoIds
     .map((id) => state.todos.find((todo) => todo.id === id)?.title)
     .filter(Boolean);
