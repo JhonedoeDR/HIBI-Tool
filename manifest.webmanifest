@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "Daily-tool",
+  "short_name": "Daily-tool",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#f5f7fb",
+  "icons": [
+    {
+      "src": "./public/assets/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

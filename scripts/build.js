@@ -4,7 +4,14 @@ import { resolve } from "node:path";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const outputDirectory = resolve(projectRoot, "dist");
-const publishedPaths = ["index.html", "styles.css", "src", "public/assets"];
+const publishedPaths = [
+  "index.html",
+  "manifest.webmanifest",
+  "service-worker.js",
+  "styles.css",
+  "src",
+  "public/assets",
+];
 
 await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true });
