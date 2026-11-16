@@ -4,7 +4,9 @@ import {
   createTodo,
   expandTodoSelection,
   getTodoDescendantIds,
+  getTodoChildren,
   getVisibleTodos,
+  moveTodoChild,
   pruneExpiredTodos,
   removeTodos,
   setTodoCompletion,
@@ -27,6 +29,9 @@ function todo(id, values = {}) {
     startDate: null,
     dueDate: null,
     parentId: null,
+    childOrder: null,
+    childDisplayMode: "all",
+    displayGroup: null,
     checklist: [],
     links: [],
     completed: false,
@@ -67,6 +72,8 @@ test("creates a Todo with normalized optional dates and checklist", () => {
   assert.equal(created.startDate, null);
   assert.equal(created.dueDate, "2025-05-04");
   assert.equal(created.parentId, null);
+  assert.equal(created.childDisplayMode, "all");
+  assert.equal(created.displayGroup, null);
   assert.equal(created.checklist.length, 1);
   assert.equal(created.checklist[0].completed, false);
 });
@@ -125,6 +132,84 @@ test("deleting a parent detaches surviving child Todos", () => {
   assert.equal(remaining[0].parentId, null);
 });
 
+test("sequential mode exposes one incomplete child in its saved order", () => {
+  const todos = [
+    todo("parent", { childDisplayMode: "sequential" }),
+    todo("second", { parentId: "parent", childOrder: 1 }),
+    todo("first", { parentId: "parent", childOrder: 0 }),
+    todo("third", { parentId: "parent", childOrder: 2 }),
+  ];
+  const visibleChildren = (items) =>
+    getVisibleTodos(items, { category: "all", today: "2025-05-01" })
+      .filter((item) => item.parentId === "parent")
+      .map((item) => item.id);
+
+  assert.deepEqual(visibleChildren(todos), ["first"]);
+  const firstCompleted = setTodoCompletion(todos, "first", true, new Date("2025-05-01T08:00:00Z"));
+  assert.deepEqual(visibleChildren(firstCompleted), ["second"]);
+  const secondCompleted = setTodoCompletion(
+    firstCompleted,
+    "second",
+    true,
+    new Date("2025-05-01T08:00:00Z"),
+  );
+  assert.deepEqual(visibleChildren(secondCompleted), ["third"]);
+});
+
+test("custom mode shows one display group at a time and honors child order", () => {
+  const todos = [
+    todo("parent", { childDisplayMode: "custom" }),
+    todo("later", { parentId: "parent", childOrder: 2, displayGroup: 2 }),
+    todo("second", { parentId: "parent", childOrder: 1, displayGroup: 1 }),
+    todo("first", { parentId: "parent", childOrder: 0, displayGroup: 1 }),
+  ];
+  const visibleChildren = (items) =>
+    getVisibleTodos(items, { category: "all", today: "2025-05-01" })
+      .filter((item) => item.parentId === "parent")
+      .map((item) => item.id);
+
+  assert.deepEqual(visibleChildren(todos), ["first", "second"]);
+  const firstCompleted = setTodoCompletion(todos, "first", true, new Date("2025-05-01T08:00:00Z"));
+  assert.deepEqual(visibleChildren(firstCompleted), ["second"]);
+  const groupCompleted = setTodoCompletion(
+    firstCompleted,
+    "second",
+    true,
+    new Date("2025-05-01T08:00:00Z"),
+  );
+  assert.deepEqual(visibleChildren(groupCompleted), ["later"]);
+});
+
+test("child display order can be changed without moving unrelated Todos", () => {
+  const todos = [
+    todo("parent"),
+    todo("first", { parentId: "parent", childOrder: 0 }),
+    todo("unrelated"),
+    todo("second", { parentId: "parent", childOrder: 1 }),
+  ];
+  const moved = moveTodoChild(todos, "second", -1, new Date("2025-05-02T08:00:00Z"));
+
+  assert.deepEqual(getTodoChildren(moved, "parent").map((item) => item.id), ["second", "first"]);
+  assert.equal(moved.find((item) => item.id === "unrelated"), todos[2]);
+  assert.deepEqual(moveTodoChild(moved, "second", -1), moved);
+});
+
+test("all mode shows every child and keeps the configured child order", () => {
+  const todos = [
+    todo("parent"),
+    todo("first", { parentId: "parent", childOrder: 0, dueDate: "2025-05-04" }),
+    todo("second", { parentId: "parent", childOrder: 1, dueDate: "2025-05-02" }),
+    todo("unrelated", { dueDate: "2025-05-01" }),
+  ];
+
+  assert.deepEqual(
+    getVisibleTodos(todos, { category: "all", today: "2025-05-01" })
+      .filter((item) => item.parentId === "parent")
+      .map((item) => item.id),
+    ["first", "second"],
+  );
+});
+
 test("rejects invalid dates, reversed date ranges, and unsafe links", () => {
   const base = { title: "Task", category: "main", startDate: "", dueDate: "", checklist: [], links: [] };
   assert.throws(() => createTodo({ ...base, dueDate: "2025-02-30" }), /日付が正しくありません/);
@@ -133,6 +218,14 @@ test("rejects invalid dates, reversed date ranges, and unsafe links", () => {
     /開始日は期限以前/,
   );
   assert.throws(() => createTodo({ ...base, links: ["javascript:alert(1)"] }), /http または https/);
+  assert.throws(
+    () => createTodo({ ...base, parentId: "parent", displayGroup: 101 }),
+    /表示グループは1〜100/,
+  );
+  assert.throws(
+    () => createTodo({ ...base, childDisplayMode: "invalid" }),
+    /子Todoの表示方式/,
+  );
 });
 
 test("filters overdue todos, sorts undated tasks last, and puts not-yet-started tasks last", () => {
@@ -209,18 +302,29 @@ test("schema migration adds parent links and calendar events inherit child Todo 
   const storage = memoryStorage();
   const legacyTodo = todo("legacy");
   delete legacyTodo.parentId;
+  delete legacyTodo.childOrder;
+  delete legacyTodo.childDisplayMode;
+  delete legacyTodo.displayGroup;
+  const legacyChild = todo("legacy-child", { parentId: "legacy" });
+  delete legacyChild.childOrder;
+  delete legacyChild.childDisplayMode;
+  delete legacyChild.displayGroup;
   storage.setItem(
     APP_STORAGE_KEY,
     JSON.stringify({
-      schemaVersion: 4,
-      todos: [legacyTodo],
+      schemaVersion: 5,
+      todos: [legacyTodo, legacyChild],
       game: createInitialGameState(),
       calendarEvents: [],
     }),
   );
   const migrated = loadAppState(storage, "2025-05-01");
   assert.equal(migrated.todos[0].parentId, null);
-  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 5);
+  assert.equal(migrated.todos[0].childDisplayMode, "all");
+  assert.equal(migrated.todos[0].displayGroup, null);
+  assert.equal(migrated.todos[1].childOrder, 0);
+  assert.equal(migrated.todos[1].displayGroup, 1);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 6);
 
   const event = createCalendarEvent(
     {

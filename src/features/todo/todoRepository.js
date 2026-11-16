@@ -3,7 +3,7 @@ import { pruneExpiredTodos } from "./todoService.js";
 export const APP_STORAGE_KEY = "daily-tool.state.v1";
 export const TODO_STORAGE_KEY = "daily-tool.todos.v1";
 export const MAX_AUTOMATIC_BACKUPS = 10;
-const APP_SCHEMA_VERSION = 5;
+const APP_SCHEMA_VERSION = 6;
 
 export class TodoStorageError extends Error {
   constructor(message, options) {
@@ -145,7 +145,7 @@ function parseAppState(raw) {
     });
   }
   if (
-    ![1, 2, 3, 4, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
+    ![1, 2, 3, 4, 5, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
     !Array.isArray(parsed.todos) ||
     !parsed.todos.every(isTodoRecord) ||
     (parsed.calendarEvents !== undefined &&
@@ -205,11 +205,15 @@ function normalizeAppData(data) {
   const todos = data.todos.map((todo) => ({
     ...todo,
     parentId: todo.parentId || null,
+    childOrder: todo.parentId ? todo.childOrder ?? null : null,
+    childDisplayMode: todo.childDisplayMode ?? "all",
+    displayGroup: todo.parentId ? todo.displayGroup ?? 1 : null,
   }));
   if (!isValidTodoHierarchy(todos)) {
     return null;
   }
-  const todoIds = new Set(todos.map((todo) => todo.id));
+  const normalizedTodos = normalizeChildOrders(todos);
+  const todoIds = new Set(normalizedTodos.map((todo) => todo.id));
   const calendarEvents = data.calendarEvents ?? [];
   if (calendarEvents.some((event) => event.todoIds.some((id) => !todoIds.has(id)))) {
     return null;
@@ -223,11 +227,11 @@ function normalizeAppData(data) {
     return null;
   }
   return {
-    todos,
+    todos: normalizedTodos,
     game,
     calendarEvents: calendarEvents.map((event) => ({
       ...event,
-      todoIds: expandLinkedTodoIds(todos, event.todoIds),
+      todoIds: expandLinkedTodoIds(normalizedTodos, event.todoIds),
     })),
   };
 }
@@ -254,6 +258,31 @@ function isValidTodoHierarchy(todos) {
     }
   }
   return true;
+}
+
+function normalizeChildOrders(todos) {
+  const indexedTodos = todos.map((todo, index) => ({ todo, index }));
+  const childrenByParent = new Map();
+  for (const entry of indexedTodos) {
+    if (!entry.todo.parentId) {
+      continue;
+    }
+    const siblings = childrenByParent.get(entry.todo.parentId) ?? [];
+    siblings.push(entry);
+    childrenByParent.set(entry.todo.parentId, siblings);
+  }
+
+  for (const siblings of childrenByParent.values()) {
+    siblings.sort((left, right) => {
+      const leftOrder = left.todo.childOrder ?? Number.POSITIVE_INFINITY;
+      const rightOrder = right.todo.childOrder ?? Number.POSITIVE_INFINITY;
+      return leftOrder - rightOrder || left.index - right.index;
+    });
+    siblings.forEach(({ todo }, order) => {
+      todo.childOrder = order;
+    });
+  }
+  return todos;
 }
 
 function expandLinkedTodoIds(todos, linkedIds) {
@@ -390,6 +419,16 @@ function isTodoRecord(todo) {
     typeof todo.id === "string" &&
     typeof todo.title === "string" &&
     (todo.parentId === undefined || todo.parentId === null || typeof todo.parentId === "string") &&
+    (todo.childOrder === undefined ||
+      todo.childOrder === null ||
+      (Number.isSafeInteger(todo.childOrder) && todo.childOrder >= 0)) &&
+    (todo.childDisplayMode === undefined ||
+      ["all", "sequential", "custom"].includes(todo.childDisplayMode)) &&
+    (todo.displayGroup === undefined ||
+      todo.displayGroup === null ||
+      (Number.isSafeInteger(todo.displayGroup) &&
+        todo.displayGroup >= 1 &&
+        todo.displayGroup <= 100)) &&
     ["main", "routine", "other"].includes(todo.category) &&
     (todo.startDate === null || isDateKey(todo.startDate)) &&
     (todo.dueDate === null || isDateKey(todo.dueDate)) &&

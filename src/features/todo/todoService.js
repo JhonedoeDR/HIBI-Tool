@@ -1,4 +1,5 @@
 export const TODO_CATEGORIES = ["main", "routine", "other"];
+export const TODO_CHILD_DISPLAY_MODES = ["all", "sequential", "custom"];
 
 const CATEGORY_LABELS = {
   main: "メイン",
@@ -33,6 +34,12 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
   if (parentId !== null && (typeof parentId !== "string" || parentId === id)) {
     throw new TodoValidationError("親Todoの指定が正しくありません。");
   }
+  const childDisplayMode = input.childDisplayMode ?? "all";
+  if (!TODO_CHILD_DISPLAY_MODES.includes(childDisplayMode)) {
+    throw new TodoValidationError("子Todoの表示方式を選択してください。");
+  }
+  const childOrder = normalizeChildOrder(input.childOrder, parentId);
+  const displayGroup = normalizeDisplayGroup(input.displayGroup, parentId);
   if (!TODO_CATEGORIES.includes(category)) {
     throw new TodoValidationError("分類を選択してください。");
   }
@@ -54,6 +61,9 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
     startDate,
     dueDate,
     parentId,
+    childOrder,
+    childDisplayMode,
+    displayGroup,
     checklist,
     links,
     completed: false,
@@ -93,6 +103,38 @@ export function expandTodoSelection(todos, todoIds) {
     }
   }
   return todos.filter((todo) => selectedIds.has(todo.id)).map((todo) => todo.id);
+}
+
+export function getTodoChildren(todos, parentId) {
+  return todos
+    .filter((todo) => todo.parentId === parentId)
+    .sort((left, right) => (left.childOrder ?? Infinity) - (right.childOrder ?? Infinity));
+}
+
+export function moveTodoChild(todos, childId, direction, now = new Date()) {
+  if (direction !== -1 && direction !== 1) {
+    return todos;
+  }
+  const child = todos.find((todo) => todo.id === childId);
+  if (!child?.parentId) {
+    return todos;
+  }
+  const siblings = getTodoChildren(todos, child.parentId);
+  const currentIndex = siblings.findIndex((todo) => todo.id === childId);
+  const nextIndex = currentIndex + direction;
+  if (currentIndex < 0 || nextIndex < 0 || nextIndex >= siblings.length) {
+    return todos;
+  }
+
+  const reordered = [...siblings];
+  [reordered[currentIndex], reordered[nextIndex]] = [reordered[nextIndex], reordered[currentIndex]];
+  const orderById = new Map(reordered.map((todo, index) => [todo.id, index]));
+  const updatedAt = now.toISOString();
+  return todos.map((todo) =>
+    orderById.has(todo.id)
+      ? { ...todo, childOrder: orderById.get(todo.id), updatedAt }
+      : todo,
+  );
 }
 
 export function removeTodos(todos, todoIds) {
@@ -154,8 +196,27 @@ export function getVisibleTodos(
     }
     return true;
   });
+  const todosById = new Map(todos.map((todo) => [todo.id, todo]));
+  const activeChildrenByParent = new Map();
+  for (const todo of todos) {
+    if (todo.dueDate && todo.dueDate < today) {
+      continue;
+    }
+    if (!todo.parentId) {
+      continue;
+    }
+    const children = activeChildrenByParent.get(todo.parentId) ?? [];
+    children.push(todo);
+    activeChildrenByParent.set(todo.parentId, children);
+  }
+  for (const children of activeChildrenByParent.values()) {
+    children.sort((left, right) => (left.childOrder ?? Infinity) - (right.childOrder ?? Infinity));
+  }
+  const displayFiltered = filtered.filter((todo) =>
+    isVisibleInParentModes(todo, todosById, activeChildrenByParent),
+  );
 
-  return filtered.sort((left, right) => {
+  const sorted = displayFiltered.sort((left, right) => {
     const leftNotStarted = left.startDate && left.startDate > today;
     const rightNotStarted = right.startDate && right.startDate > today;
     if (Boolean(leftNotStarted) !== Boolean(rightNotStarted)) {
@@ -177,6 +238,86 @@ export function getVisibleTodos(
     }
     return left.title.localeCompare(right.title, "ja");
   });
+  const visibleChildrenByParent = new Map();
+  for (const todo of sorted) {
+    if (!todo.parentId) {
+      continue;
+    }
+    const siblings = visibleChildrenByParent.get(todo.parentId) ?? [];
+    siblings.push(todo);
+    visibleChildrenByParent.set(todo.parentId, siblings);
+  }
+  for (const siblings of visibleChildrenByParent.values()) {
+    if (siblings.length < 2) {
+      continue;
+    }
+    const orderedChildren = [...siblings].sort(
+      (left, right) => (left.childOrder ?? Infinity) - (right.childOrder ?? Infinity),
+    );
+    const positions = sorted.flatMap((todo, index) =>
+      todo.parentId === siblings[0].parentId ? [index] : [],
+    );
+    positions.forEach((position, index) => {
+      sorted[position] = orderedChildren[index];
+    });
+  }
+  return sorted;
+}
+
+function isVisibleInParentModes(todo, todosById, activeChildrenByParent) {
+  let child = todo;
+  let parent = todo.parentId ? todosById.get(todo.parentId) : null;
+  while (parent) {
+    if (parent.childDisplayMode === "sequential" || parent.childDisplayMode === "custom") {
+      const activeChildren = (activeChildrenByParent.get(parent.id) ?? []).filter(
+        (item) => !item.completed,
+      );
+      if (parent.childDisplayMode === "sequential") {
+        if (activeChildren[0]?.id !== child.id) {
+          return false;
+        }
+      } else {
+        if (child.completed) {
+          return false;
+        }
+        const activeGroup = activeChildren.reduce(
+          (group, item) => Math.min(group, item.displayGroup ?? 1),
+          Infinity,
+        );
+        if (activeGroup === Infinity || child.displayGroup !== activeGroup) {
+          return false;
+        }
+      }
+    }
+    child = parent;
+    parent = parent.parentId ? todosById.get(parent.parentId) : null;
+  }
+  return true;
+}
+
+function normalizeChildOrder(value, parentId) {
+  if (parentId === null) {
+    return null;
+  }
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const order = Number(value);
+  if (!Number.isSafeInteger(order) || order < 0) {
+    throw new TodoValidationError("子Todoの表示順が正しくありません。");
+  }
+  return order;
+}
+
+function normalizeDisplayGroup(value, parentId) {
+  if (parentId === null) {
+    return null;
+  }
+  const group = value === undefined || value === "" || value === null ? 1 : Number(value);
+  if (!Number.isSafeInteger(group) || group < 1 || group > 100) {
+    throw new TodoValidationError("表示グループは1〜100で入力してください。");
+  }
+  return group;
 }
 
 export function pruneExpiredTodos(todos, today = getLocalDateKey()) {

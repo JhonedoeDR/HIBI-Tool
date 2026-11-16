@@ -737,6 +737,13 @@ textarea:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.pending-child-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+
 .child-todo-dialog {
   width: min(480px, calc(100% - 28px));
 }

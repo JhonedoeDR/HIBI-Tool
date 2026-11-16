@@ -180,6 +180,6 @@ test("migrates existing application saves without resetting game balances", () =
     lastClaimDate: null,
     lastClaimedDay: null,
   });
-  assert.equal(saved.schemaVersion, 5);
+  assert.equal(saved.schemaVersion, 6);
   assert.deepEqual(loaded.calendarEvents, []);
 });

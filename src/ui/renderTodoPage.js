@@ -1,5 +1,6 @@
 import {
   getCategoryLabel,
+  getTodoChildren,
   getTodoDescendantIds,
   getLocalDateKey,
 } from "../features/todo/todoService.js";
@@ -233,7 +234,7 @@ function renderTodo(todo, state) {
   );
   copy.append(titleRow, renderTodoMeta(todo, notStarted));
   const parent = state.todos.find((item) => item.id === todo.parentId);
-  const children = state.todos.filter((item) => item.parentId === todo.id);
+  const children = state.visibleTodos.filter((item) => item.parentId === todo.id);
   if (parent || children.length) {
     copy.append(renderTodoRelations(parent, children));
   }
@@ -361,12 +362,21 @@ function renderTodoDialog(state) {
   details.append(element("summary", "", "詳細設定（親Todo・チェックリスト・リンク）"));
   details.append(
     parentTodoField(todo, state.todos, draft.parentId ?? todo?.parentId ?? ""),
+    field(
+      "子Todoの表示方式",
+      childDisplayModeSelect(draft.childDisplayMode ?? todo?.childDisplayMode ?? "all"),
+    ),
+    field(
+      "表示グループ（子Todoの場合）",
+      displayGroupInput(draft.displayGroup ?? todo?.displayGroup ?? 1),
+      "カスタム表示では同じグループの子Todoをまとめて表示します。",
+    ),
   );
   const addChild = actionButton("子Todoを新規作成", "secondary-button", "new-child-todo");
   addChild.disabled = !state.storageReady;
   details.append(addChild);
   const existingChildren = todo
-    ? state.todos.filter((item) => item.parentId === todo.id)
+    ? getTodoChildren(state.todos, todo.id)
     : [];
   if (existingChildren.length) {
     details.append(renderExistingChildren(existingChildren));
@@ -409,9 +419,22 @@ function renderTodoDialog(state) {
 function renderExistingChildren(children) {
   const list = element("ul", "pending-child-list");
   list.append(element("li", "pending-child-heading", "登録済みの子Todo"));
-  for (const child of children) {
+  for (const [index, child] of children.entries()) {
     const row = element("li", "pending-child-row");
-    row.append(element("span", "", child.title));
+    row.append(element("span", "", `${child.title}（グループ${child.displayGroup ?? 1}）`));
+    const actions = element("div", "pending-child-actions");
+    const up = actionButton("↑", "icon-button", "move-child-order");
+    up.dataset.todoId = child.id;
+    up.dataset.direction = "-1";
+    up.disabled = index === 0;
+    up.setAttribute("aria-label", `${child.title}を上へ移動`);
+    const down = actionButton("↓", "icon-button", "move-child-order");
+    down.dataset.todoId = child.id;
+    down.dataset.direction = "1";
+    down.disabled = index === children.length - 1;
+    down.setAttribute("aria-label", `${child.title}を下へ移動`);
+    actions.append(up, down);
+    row.append(actions);
     list.append(row);
   }
   return list;
@@ -420,11 +443,26 @@ function renderExistingChildren(children) {
 function renderPendingChildren(children) {
   const list = element("ul", "pending-child-list");
   list.append(element("li", "pending-child-heading", "親Todoと一緒に登録する子Todo"));
-  for (const child of children) {
+  for (const [index, child] of children.entries()) {
     const row = element("li", "pending-child-row");
     const remove = actionButton("取り消す", "text-button", "remove-pending-child");
     remove.dataset.todoId = child.id;
-    row.append(element("span", "", child.title), remove);
+    const actions = element("div", "pending-child-actions");
+    const up = actionButton("↑", "icon-button", "move-pending-child");
+    up.dataset.todoId = child.id;
+    up.dataset.direction = "-1";
+    up.disabled = index === 0;
+    up.setAttribute("aria-label", `${child.title}を上へ移動`);
+    const down = actionButton("↓", "icon-button", "move-pending-child");
+    down.dataset.todoId = child.id;
+    down.dataset.direction = "1";
+    down.disabled = index === children.length - 1;
+    down.setAttribute("aria-label", `${child.title}を下へ移動`);
+    actions.append(up, down, remove);
+    row.append(
+      element("span", "", `${child.title}（グループ${child.displayGroup ?? 1}）`),
+      actions,
+    );
     list.append(row);
   }
   return list;
@@ -462,6 +500,12 @@ function renderChildTodoDialog(state) {
       "分類",
       categorySelect(parent?.category ?? state.todoDraft?.category ?? state.category),
     ),
+    field("子Todoの表示方式", childDisplayModeSelect("all")),
+    field(
+      "表示グループ",
+      displayGroupInput(1),
+      "親Todoの表示方式がカスタムの場合に使います。",
+    ),
   );
   const dates = element("div", "form-fields two-columns");
   dates.append(
@@ -493,6 +537,33 @@ function renderChildTodoDialog(state) {
   form.append(header, parentLabel, fields, dates, details, error, actions);
   dialog.append(form);
   return dialog;
+}
+
+function childDisplayModeSelect(value) {
+  const select = element("select", "");
+  select.name = "childDisplayMode";
+  for (const [mode, label] of [
+    ["all", "すべて表示"],
+    ["sequential", "順次表示"],
+    ["custom", "カスタム表示"],
+  ]) {
+    const option = element("option", "", label);
+    option.value = mode;
+    select.append(option);
+  }
+  select.value = value;
+  return select;
+}
+
+function displayGroupInput(value) {
+  const input = element("input", "");
+  input.type = "number";
+  input.name = "displayGroup";
+  input.min = "1";
+  input.max = "100";
+  input.step = "1";
+  input.value = String(value);
+  return input;
 }
 
 function parentTodoField(todo, todos, parentId) {

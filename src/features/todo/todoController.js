@@ -21,9 +21,11 @@ import {
 import {
   createTodo,
   expandTodoSelection,
+  getTodoChildren,
   getTodoDescendantIds,
   getLocalDateKey,
   getVisibleTodos,
+  moveTodoChild,
   removeTodos,
   setChecklistCompletion,
   setTodoCompletion,
@@ -299,8 +301,34 @@ export function startTodoApp(root) {
       }
       state.pendingChildren = state.pendingChildren.filter(
         (todo) => todo.id !== button.dataset.todoId,
-      );
+      ).map((todo, childOrder) => ({ ...todo, childOrder }));
       render();
+    } else if (action === "move-pending-child") {
+      const form = root.querySelector("#todo-form");
+      if (form) {
+        state.todoDraft = readTodoDraft(form);
+      }
+      const index = state.pendingChildren.findIndex((todo) => todo.id === button.dataset.todoId);
+      const nextIndex = index + Number(button.dataset.direction);
+      if (index >= 0 && nextIndex >= 0 && nextIndex < state.pendingChildren.length) {
+        const children = [...state.pendingChildren];
+        [children[index], children[nextIndex]] = [children[nextIndex], children[index]];
+        state.pendingChildren = children.map((todo, childOrder) => ({ ...todo, childOrder }));
+        render();
+      }
+    } else if (action === "move-child-order" && state.storageReady) {
+      const form = root.querySelector("#todo-form");
+      if (form) {
+        state.todoDraft = readTodoDraft(form);
+      }
+      persistAppState(
+        moveTodoChild(
+          state.todos,
+          button.dataset.todoId,
+          Number(button.dataset.direction),
+        ),
+        state.game,
+      );
     } else if (
       action === "delete-todo" &&
       state.storageReady &&
@@ -557,6 +585,8 @@ export function startTodoApp(root) {
       const draft = {
         title: String(formData.get("title") ?? ""),
         category: String(formData.get("category") ?? ""),
+        childDisplayMode: String(formData.get("childDisplayMode") ?? "all"),
+        displayGroup: String(formData.get("displayGroup") ?? ""),
         startDate: String(formData.get("startDate") ?? ""),
         dueDate: String(formData.get("dueDate") ?? ""),
         checklist: checklistText.split("\n"),
@@ -564,7 +594,10 @@ export function startTodoApp(root) {
         parentId: state.childParentId,
       };
       try {
-        const child = createTodo(draft, { now: new Date() });
+        const childOrder = parent
+          ? getTodoChildren(state.todos, parent.id).length
+          : state.pendingChildren.length;
+        const child = createTodo({ ...draft, childOrder }, { now: new Date() });
         if (parent) {
           const savedState = saveAppState({
             todos: [...state.todos, child],
@@ -608,6 +641,8 @@ export function startTodoApp(root) {
     const draft = {
       title: String(formData.get("title") ?? ""),
       category: String(formData.get("category") ?? ""),
+      childDisplayMode: String(formData.get("childDisplayMode") ?? "all"),
+      displayGroup: String(formData.get("displayGroup") ?? ""),
       startDate: String(formData.get("startDate") ?? ""),
       dueDate: String(formData.get("dueDate") ?? ""),
       checklist: checklistText.split("\n"),
@@ -622,6 +657,9 @@ export function startTodoApp(root) {
         now: new Date(),
       });
       if (editing) {
+        if (nextTodo.parentId === editing.parentId) {
+          nextTodo.childOrder = editing.childOrder;
+        }
         nextTodo.createdAt = editing.createdAt;
         nextTodo.completed = editing.completed;
         nextTodo.completedAt = editing.completedAt;
@@ -709,6 +747,8 @@ function readTodoDraft(form) {
     startDate: String(formData.get("startDate") ?? ""),
     dueDate: String(formData.get("dueDate") ?? ""),
     parentId: String(formData.get("parentId") ?? ""),
+    childDisplayMode: String(formData.get("childDisplayMode") ?? "all"),
+    displayGroup: String(formData.get("displayGroup") ?? ""),
     checklist: String(formData.get("checklist") ?? ""),
     links: String(formData.get("links") ?? ""),
   };
