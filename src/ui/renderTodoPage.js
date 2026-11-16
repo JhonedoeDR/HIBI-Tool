@@ -18,7 +18,7 @@ export function renderTodoPage(state) {
   main.append(renderTopbar(), renderHeading(state), renderSummary(state));
   main.append(renderTodoSection(state));
   main.append(renderFooter());
-  shell.append(main, renderTodoDialog(state));
+  shell.append(main, renderTodoDialog(state), renderChildTodoDialog(state));
   return shell;
 }
 
@@ -342,32 +342,49 @@ function renderTodoDialog(state) {
   header.append(closeButton);
 
   const fields = element("div", "form-fields");
+  const draft = state.todoDraft ?? {};
   fields.append(
-    field("タスク名", textInput("title", todo?.title ?? "", "todo-title", true)),
-    field("分類", categorySelect(todo?.category ?? state.category)),
+    field("タスク名", textInput("title", draft.title ?? todo?.title ?? "", "todo-title", true)),
+    field("分類", categorySelect(draft.category ?? todo?.category ?? state.category)),
   );
 
   const dateFields = element("div", "form-fields two-columns");
   dateFields.append(
-    field("開始日（任意）", dateInput("startDate", todo?.startDate ?? "")),
-    field("期限終了日（任意）", dateInput("dueDate", todo?.dueDate ?? "")),
+    field("開始日（任意）", dateInput("startDate", draft.startDate ?? todo?.startDate ?? "")),
+    field("期限終了日（任意）", dateInput("dueDate", draft.dueDate ?? todo?.dueDate ?? "")),
   );
 
   const details = element("details", "advanced-fields");
+  details.open = state.todoDraft !== null;
   details.append(element("summary", "", "詳細設定（親Todo・チェックリスト・リンク）"));
-  details.append(parentTodoField(todo, state.todos));
+  details.append(
+    parentTodoField(todo, state.todos, draft.parentId ?? todo?.parentId ?? ""),
+  );
+  const addChild = actionButton("子Todoを新規作成", "secondary-button", "new-child-todo");
+  addChild.disabled = !state.storageReady;
+  details.append(addChild);
+  const existingChildren = todo
+    ? state.todos.filter((item) => item.parentId === todo.id)
+    : [];
+  if (existingChildren.length) {
+    details.append(renderExistingChildren(existingChildren));
+  }
+  if (state.pendingChildren.length) {
+    details.append(renderPendingChildren(state.pendingChildren));
+  }
   const checklist = element("textarea", "");
   checklist.name = "checklist";
   checklist.rows = 3;
   checklist.placeholder = "項目を1行ずつ入力";
-  checklist.value = (todo?.checklist ?? []).map((item) => item.text).join("\n");
+  checklist.value =
+    draft.checklist ?? (todo?.checklist ?? []).map((item) => item.text).join("\n");
   details.append(field("チェックリスト", checklist, "1行につき1項目"));
 
   const links = element("textarea", "");
   links.name = "links";
   links.rows = 2;
   links.placeholder = "https://example.com";
-  links.value = (todo?.links ?? []).join("\n");
+  links.value = draft.links ?? (todo?.links ?? []).join("\n");
   details.append(field("リンク（複数可）", links, "http または https のURLを1行ずつ入力"));
 
   const error = element("p", "form-error", state.error);
@@ -387,7 +404,92 @@ function renderTodoDialog(state) {
   return dialog;
 }
 
-function parentTodoField(todo, todos) {
+function renderExistingChildren(children) {
+  const list = element("ul", "pending-child-list");
+  list.append(element("li", "pending-child-heading", "登録済みの子Todo"));
+  for (const child of children) {
+    list.append(element("li", "pending-child-row", child.title));
+  }
+  return list;
+}
+
+function renderPendingChildren(children) {
+  const list = element("ul", "pending-child-list");
+  list.append(element("li", "pending-child-heading", "親Todoと一緒に登録する子Todo"));
+  for (const child of children) {
+    const row = element("li", "pending-child-row");
+    const remove = actionButton("取り消す", "text-button", "remove-pending-child");
+    remove.dataset.todoId = child.id;
+    row.append(element("span", "", child.title), remove);
+    list.append(row);
+  }
+  return list;
+}
+
+function renderChildTodoDialog(state) {
+  const dialog = element("dialog", "todo-dialog child-todo-dialog");
+  dialog.id = "child-todo-dialog";
+  dialog.setAttribute("aria-labelledby", "child-todo-dialog-title");
+  const form = element("form", "todo-form");
+  form.id = "child-todo-form";
+
+  const parent = state.todos.find((todo) => todo.id === state.childParentId);
+  const header = element("div", "dialog-header");
+  const titleCopy = element("div", "");
+  titleCopy.append(
+    element("p", "eyebrow", "CHILD TASK"),
+    element("h2", "", "子Todoを新規作成"),
+  );
+  const close = actionButton("×", "dialog-close", "close-child-todo");
+  close.setAttribute("aria-label", "閉じる");
+  header.append(titleCopy, close);
+
+  const parentLabel = element(
+    "p",
+    "child-todo-parent",
+    `親Todo: ${parent?.title ?? state.todoDraft?.title ?? "新しいTodo"}`,
+  );
+  const fields = element("div", "form-fields");
+  fields.append(
+    field("タスク名", textInput("title", "", "child-todo-title", true)),
+    field(
+      "分類",
+      categorySelect(parent?.category ?? state.todoDraft?.category ?? state.category),
+    ),
+  );
+  const dates = element("div", "form-fields two-columns");
+  dates.append(
+    field("開始日（任意）", dateInput("startDate", "")),
+    field("期限終了日（任意）", dateInput("dueDate", "")),
+  );
+
+  const details = element("details", "advanced-fields");
+  details.append(element("summary", "", "詳細設定（チェックリスト・リンク）"));
+  const checklist = element("textarea", "");
+  checklist.name = "checklist";
+  checklist.rows = 3;
+  checklist.placeholder = "項目を1行ずつ入力";
+  details.append(field("チェックリスト", checklist, "1行につき1項目"));
+  const links = element("textarea", "");
+  links.name = "links";
+  links.rows = 2;
+  links.placeholder = "https://example.com";
+  details.append(field("リンク（複数可）", links, "http または https のURLを1行ずつ入力"));
+
+  const error = element("p", "form-error", state.childError);
+  error.id = "child-todo-form-error";
+  error.setAttribute("role", "alert");
+  const actions = element("div", "dialog-actions");
+  actions.append(
+    actionButton("キャンセル", "secondary-button", "close-child-todo"),
+    submitButton("子Todoを追加"),
+  );
+  form.append(header, parentLabel, fields, dates, details, error, actions);
+  dialog.append(form);
+  return dialog;
+}
+
+function parentTodoField(todo, todos, parentId) {
   const select = element("select", "");
   select.name = "parentId";
   const noParent = element("option", "", "なし（親Todo）");
@@ -410,7 +512,7 @@ function parentTodoField(todo, todos) {
     option.value = candidate.id;
     select.append(option);
   }
-  select.value = todo?.parentId ?? "";
+  select.value = parentId;
   return field("親Todo（任意）", select, "選択したTodoの子タスクとして紐付けます。");
 }
 

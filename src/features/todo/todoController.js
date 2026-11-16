@@ -59,6 +59,11 @@ export function startTodoApp(root) {
     selectedIds: new Set(),
     editingId: null,
     dialogOpen: false,
+    todoDraft: null,
+    pendingChildren: [],
+    childParentId: null,
+    childDialogOpen: false,
+    childError: "",
     error: "",
   };
   let loginBonusTimer = null;
@@ -124,6 +129,10 @@ export function startTodoApp(root) {
     if (state.dialogOpen) {
       root.querySelector("#todo-dialog")?.showModal();
       root.querySelector("#todo-title")?.focus();
+    }
+    if (state.childDialogOpen) {
+      root.querySelector("#child-todo-dialog")?.showModal();
+      root.querySelector("#child-todo-title")?.focus();
     }
   }
 
@@ -246,8 +255,13 @@ export function startTodoApp(root) {
       if (!state.storageReady) {
         return;
       }
-      state.editingId = null;
+      state.editingId = crypto.randomUUID();
       state.dialogOpen = true;
+      state.todoDraft = null;
+      state.pendingChildren = [];
+      state.childDialogOpen = false;
+      state.childParentId = null;
+      state.childError = "";
       state.error = "";
       render();
     } else if (action === "edit-todo" && state.todos.some((todo) => todo.id === todoId)) {
@@ -256,7 +270,36 @@ export function startTodoApp(root) {
       }
       state.editingId = todoId;
       state.dialogOpen = true;
+      state.todoDraft = null;
+      state.pendingChildren = [];
+      state.childDialogOpen = false;
+      state.childParentId = null;
+      state.childError = "";
       state.error = "";
+      render();
+    } else if (action === "new-child-todo" && state.storageReady) {
+      const form = root.querySelector("#todo-form");
+      if (!form || !state.editingId) {
+        return;
+      }
+      state.todoDraft = readTodoDraft(form);
+      state.childParentId = state.editingId;
+      state.childDialogOpen = true;
+      state.childError = "";
+      render();
+    } else if (action === "close-child-todo") {
+      state.childDialogOpen = false;
+      state.childParentId = null;
+      state.childError = "";
+      render();
+    } else if (action === "remove-pending-child") {
+      const form = root.querySelector("#todo-form");
+      if (form) {
+        state.todoDraft = readTodoDraft(form);
+      }
+      state.pendingChildren = state.pendingChildren.filter(
+        (todo) => todo.id !== button.dataset.todoId,
+      );
       render();
     } else if (
       action === "delete-todo" &&
@@ -502,6 +545,56 @@ export function startTodoApp(root) {
       }
       return;
     }
+    if (form.id === "child-todo-form") {
+      event.preventDefault();
+      if (!state.storageReady || !state.childParentId) {
+        return;
+      }
+      const formData = new FormData(form);
+      const checklistText = String(formData.get("checklist") ?? "");
+      const linksText = String(formData.get("links") ?? "");
+      const parent = state.todos.find((todo) => todo.id === state.childParentId);
+      const draft = {
+        title: String(formData.get("title") ?? ""),
+        category: String(formData.get("category") ?? ""),
+        startDate: String(formData.get("startDate") ?? ""),
+        dueDate: String(formData.get("dueDate") ?? ""),
+        checklist: checklistText.split("\n"),
+        links: linksText.split("\n").filter((line) => line.trim()),
+        parentId: state.childParentId,
+      };
+      try {
+        const child = createTodo(draft, { now: new Date() });
+        if (parent) {
+          const savedState = saveAppState({
+            todos: [...state.todos, child],
+            game: state.game,
+            calendarEvents: state.calendarEvents,
+          });
+          state.todos = savedState.todos;
+          state.game = savedState.game;
+          state.calendarEvents = savedState.calendarEvents;
+          state.backups = savedState.backups;
+        } else {
+          state.pendingChildren = [...state.pendingChildren, child];
+        }
+        state.childDialogOpen = false;
+        state.childParentId = null;
+        state.childError = "";
+        state.error = "";
+        render();
+      } catch (error) {
+        if (!(error instanceof TodoValidationError || error instanceof TodoStorageError)) {
+          throw error;
+        }
+        state.childError = error.message;
+        const formError = root.querySelector("#child-todo-form-error");
+        if (formError) {
+          formError.textContent = error.message;
+        }
+      }
+      return;
+    }
     if (form.id !== "todo-form") {
       return;
     }
@@ -525,7 +618,7 @@ export function startTodoApp(root) {
     try {
       const editing = state.todos.find((todo) => todo.id === state.editingId);
       const nextTodo = createTodo(draft, {
-        id: editing?.id,
+        id: editing?.id ?? state.editingId,
         now: new Date(),
       });
       if (editing) {
@@ -542,6 +635,7 @@ export function startTodoApp(root) {
       const nextTodos = editing
         ? state.todos.map((todo) => (todo.id === editing.id ? nextTodo : todo))
         : [...state.todos, nextTodo];
+      nextTodos.push(...state.pendingChildren);
       const savedState = saveAppState({
         todos: nextTodos,
         game: state.game,
@@ -553,6 +647,11 @@ export function startTodoApp(root) {
       state.backups = savedState.backups;
       state.dialogOpen = false;
       state.editingId = null;
+      state.todoDraft = null;
+      state.pendingChildren = [];
+      state.childDialogOpen = false;
+      state.childParentId = null;
+      state.childError = "";
       state.error = "";
       state.storageReady = true;
       render();
@@ -577,6 +676,11 @@ export function startTodoApp(root) {
       if (event.target.id === "todo-dialog") {
         state.dialogOpen = false;
         state.editingId = null;
+        state.todoDraft = null;
+        state.pendingChildren = [];
+        state.childDialogOpen = false;
+        state.childParentId = null;
+        state.childError = "";
         if (state.error) {
           render();
         }
@@ -585,12 +689,29 @@ export function startTodoApp(root) {
         state.calendarEditingId = null;
       } else if (event.target.id === "calendar-details-dialog") {
         state.calendarDetailId = null;
+      } else if (event.target.id === "child-todo-dialog") {
+        state.childDialogOpen = false;
+        state.childParentId = null;
+        state.childError = "";
       }
     },
     true,
   );
 
   render();
+}
+
+function readTodoDraft(form) {
+  const formData = new FormData(form);
+  return {
+    title: String(formData.get("title") ?? ""),
+    category: String(formData.get("category") ?? ""),
+    startDate: String(formData.get("startDate") ?? ""),
+    dueDate: String(formData.get("dueDate") ?? ""),
+    parentId: String(formData.get("parentId") ?? ""),
+    checklist: String(formData.get("checklist") ?? ""),
+    links: String(formData.get("links") ?? ""),
+  };
 }
 
 function downloadBackup(todos, game, calendarEvents) {

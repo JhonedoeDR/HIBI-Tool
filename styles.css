@@ -708,6 +708,45 @@ textarea:focus-visible {
   margin: 0 0 14px;
 }
 
+.pending-child-list {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f7f8fb;
+  color: #596274;
+  font-size: 0.78rem;
+  list-style: none;
+}
+
+.pending-child-heading {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.pending-child-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pending-child-row > span {
+  overflow-wrap: anywhere;
+}
+
+.child-todo-dialog {
+  width: min(480px, calc(100% - 28px));
+}
+
+.child-todo-parent {
+  margin: -8px 0 16px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
