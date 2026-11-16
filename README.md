@@ -1,4 +1,4 @@
-# Daily-tool
+# HIBI-tool
 
 個人向けの生活管理・ゲーム連携 Web アプリです。仕様は [`spec.txt`](./spec.txt) を基準とします。
 
