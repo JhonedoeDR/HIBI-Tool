@@ -1002,3 +1002,49 @@ textarea:focus-visible {
     width: calc(100% + 8px);
   }
 }
+
+.game-balance-card {
+  position: relative;
+}
+
+.game-balance-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.game-landscape {
+  position: relative;
+  min-height: 180px;
+  overflow: hidden;
+  margin: 22px 0;
+  border-radius: 10px;
+  background: #75d779;
+}
+
+.game-landscape-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.game-landscape .route-track {
+  position: relative;
+  min-height: 180px;
+  margin: 0;
+  padding: 22px;
+  background: linear-gradient(90deg, rgb(20 37 25 / 38%), rgb(20 37 25 / 12%));
+}
+
+@media (max-width: 620px) {
+  .game-landscape,
+  .game-landscape .route-track {
+    min-height: 135px;
+  }
+
+  .game-landscape .route-track {
+    padding: 14px;
+  }
+}

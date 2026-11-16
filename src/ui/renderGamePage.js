@@ -1,4 +1,5 @@
 import { renderSidebar } from "./renderTodoPage.js";
+import { gameAssets } from "../assets/assetManifest.js";
 
 export function renderGamePage(state) {
   const shell = document.createElement("div");
@@ -45,8 +46,8 @@ export function renderGamePage(state) {
   balances.className = "game-balance-grid";
   balances.append(
     balanceCard("通常ポイント", state.game.normalPoints, "todo"),
-    balanceCard("攻撃専用ポイント", state.game.attackPoints, "attack"),
-    balanceCard("ジュエル", state.game.jewels, "jewel"),
+    balanceCard("攻撃専用ポイント", state.game.attackPoints, "attack", gameAssets.sword),
+    balanceCard("ジュエル", state.game.jewels, "jewel", gameAssets.jewel),
   );
 
   const route = document.createElement("section");
@@ -69,6 +70,17 @@ export function renderGamePage(state) {
   progress.textContent = `マス ${state.game.position + 1}`;
   routeHeader.append(routeCopy, progress);
 
+  const landscape = document.createElement("div");
+  landscape.className = "game-landscape";
+  const landscapeImage = document.createElement("img");
+  landscapeImage.className = "game-landscape-image";
+  landscapeImage.src = gameAssets.areaBackground;
+  landscapeImage.alt = "平原エリア";
+  landscapeImage.width = 1920;
+  landscapeImage.height = 1080;
+  landscapeImage.loading = "lazy";
+  landscapeImage.decoding = "async";
+
   const path = document.createElement("div");
   path.className = "route-track";
   path.setAttribute("aria-label", "エリアの一本道ルート");
@@ -84,7 +96,8 @@ export function renderGamePage(state) {
   unavailable.textContent =
     "戦闘、マス数、敵HP、報酬計算は仕様が未確定のため、ポイント表示のみ実装しています。";
 
-  route.append(routeHeader, path, unavailable);
+  landscape.append(landscapeImage, path);
+  route.append(routeHeader, landscape, unavailable);
 
   const info = document.createElement("p");
   info.className = "game-note game-storage-note";
@@ -97,9 +110,20 @@ export function renderGamePage(state) {
   return shell;
 }
 
-function balanceCard(label, value, type) {
+function balanceCard(label, value, type, iconPath) {
   const card = document.createElement("article");
   card.className = `game-balance-card game-balance-${type}`;
+  if (iconPath) {
+    const icon = document.createElement("img");
+    icon.className = "game-balance-icon";
+    icon.src = iconPath;
+    icon.alt = "";
+    icon.width = 36;
+    icon.height = 36;
+    icon.loading = "lazy";
+    icon.decoding = "async";
+    card.append(icon);
+  }
   const name = document.createElement("span");
   name.className = "game-balance-label";
   name.textContent = label;
