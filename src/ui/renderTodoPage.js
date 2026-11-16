@@ -331,9 +331,11 @@ function renderTodoDialog(state) {
 
   const header = element("div", "dialog-header");
   const titleCopy = element("div", "");
+  const dialogTitle = element("h2", "", todo ? "Todoを編集" : "新しいTodo");
+  dialogTitle.id = "todo-dialog-title";
   titleCopy.append(
     element("p", "eyebrow", "TASK DETAILS"),
-    element("h2", "", todo ? "Todoを編集" : "新しいTodo"),
+    dialogTitle,
   );
   header.append(titleCopy);
   const closeButton = actionButton("×", "dialog-close", "close-dialog");
@@ -408,7 +410,9 @@ function renderExistingChildren(children) {
   const list = element("ul", "pending-child-list");
   list.append(element("li", "pending-child-heading", "登録済みの子Todo"));
   for (const child of children) {
-    list.append(element("li", "pending-child-row", child.title));
+    const row = element("li", "pending-child-row");
+    row.append(element("span", "", child.title));
+    list.append(row);
   }
   return list;
 }
@@ -436,9 +440,11 @@ function renderChildTodoDialog(state) {
   const parent = state.todos.find((todo) => todo.id === state.childParentId);
   const header = element("div", "dialog-header");
   const titleCopy = element("div", "");
+  const dialogTitle = element("h2", "", "子Todoを新規作成");
+  dialogTitle.id = "child-todo-dialog-title";
   titleCopy.append(
     element("p", "eyebrow", "CHILD TASK"),
-    element("h2", "", "子Todoを新規作成"),
+    dialogTitle,
   );
   const close = actionButton("×", "dialog-close", "close-child-todo");
   close.setAttribute("aria-label", "閉じる");
@@ -447,7 +453,7 @@ function renderChildTodoDialog(state) {
   const parentLabel = element(
     "p",
     "child-todo-parent",
-    `親Todo: ${parent?.title ?? state.todoDraft?.title ?? "新しいTodo"}`,
+    `親Todo: ${(parent?.title ?? state.todoDraft?.title) || "新しいTodo"}`,
   );
   const fields = element("div", "form-fields");
   fields.append(
