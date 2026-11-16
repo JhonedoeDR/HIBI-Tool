@@ -1,4 +1,4 @@
-import { renderTodoPage } from "../../ui/renderTodoPage.js";
+import { renderTodoPage, updateRoutineFields } from "../../ui/renderTodoPage.js";
 import { renderGamePage } from "../../ui/renderGamePage.js";
 import { renderDataPage } from "../../ui/renderDataPage.js";
 import { renderCalendarPage } from "../../ui/renderCalendarPage.js";
@@ -31,6 +31,7 @@ import {
   setTodoCompletion,
   TodoValidationError,
 } from "./todoService.js";
+import { advanceMissedRoutineTodos, advanceRoutineTodo } from "./routineService.js";
 import {
   createInitialGameState,
   loadAppState,
@@ -69,6 +70,7 @@ export function startTodoApp(root) {
     error: "",
   };
   let loginBonusTimer = null;
+  let routineRefreshTimer = null;
 
   try {
     Object.assign(state, loadAppState());
@@ -85,6 +87,7 @@ export function startTodoApp(root) {
       window.clearTimeout(loginBonusTimer);
       loginBonusTimer = null;
     }
+    scheduleRoutineRefresh();
     if (state.view === "game") {
       root.replaceChildren(
         renderGamePage({
@@ -162,6 +165,37 @@ export function startTodoApp(root) {
       state.error = error.message;
       render();
     }
+  }
+
+  function scheduleRoutineRefresh() {
+    if (routineRefreshTimer !== null) {
+      window.clearTimeout(routineRefreshTimer);
+      routineRefreshTimer = null;
+    }
+    if (!state.todos.some((todo) => todo.category === "routine" && todo.routineRule)) {
+      return;
+    }
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    routineRefreshTimer = window.setTimeout(() => {
+      routineRefreshTimer = null;
+      let refreshedTodos;
+      try {
+        refreshedTodos = advanceMissedRoutineTodos(state.todos, getLocalDateKey());
+      } catch (error) {
+        if (!(error instanceof RangeError)) {
+          throw error;
+        }
+        state.error = error.message;
+        render();
+        return;
+      }
+      if (refreshedTodos === state.todos) {
+        render();
+      } else {
+        persistAppState(refreshedTodos, state.game);
+      }
+    }, nextMidnight.getTime() - now.getTime() + 50);
   }
 
   root.addEventListener("click", (event) => {
@@ -399,6 +433,38 @@ export function startTodoApp(root) {
       return;
     }
 
+    if (target.name === "routineAnchorDate") {
+      target.dataset.preservedAnchor = "true";
+      return;
+    }
+
+    if (target.name === "startDate" || target.name === "dueDate") {
+      const form = target.form;
+      const anchor = form?.querySelector('[name="routineAnchorDate"]');
+      if (anchor && anchor.dataset.preservedAnchor !== "true") {
+        anchor.value =
+          form.elements.namedItem("dueDate")?.value ||
+          form.elements.namedItem("startDate")?.value ||
+          getLocalDateKey();
+      }
+      return;
+    }
+
+    if (target.name === "category" || target.name === "routineType") {
+      const form = target.form;
+      const section = form?.querySelector("[data-routine-fields]");
+      const category = form?.querySelector('[name="category"]')?.value;
+      const type = form?.querySelector('[name="routineType"]')?.value;
+      updateRoutineFields(section, type, category === "routine");
+      if (category === "routine") {
+        const details = form?.querySelector(".advanced-fields");
+        if (details) {
+          details.open = true;
+        }
+      }
+      return;
+    }
+
     if (target.dataset.action === "calendar-event-type") {
       const form = root.querySelector("#calendar-event-form");
       state.calendarType = target.value;
@@ -474,7 +540,20 @@ export function startTodoApp(root) {
         target.checked && !currentTodo.completed
           ? awardTodoCompletion(state.game, updatedTodo, updatedTodo.completedAt)
           : state.game;
-      persistAppState(nextTodos, nextGame);
+      try {
+        persistAppState(
+          target.checked
+            ? advanceRoutineTodo(updatedTodo, nextTodos, completedAt)
+            : nextTodos,
+          nextGame,
+        );
+      } catch (error) {
+        if (!(error instanceof RangeError)) {
+          throw error;
+        }
+        state.error = error.message;
+        render();
+      }
     } else if (target.dataset.action === "complete-calendar-event") {
       if (!state.storageReady) {
         return;
@@ -587,6 +666,8 @@ export function startTodoApp(root) {
         category: String(formData.get("category") ?? ""),
         childDisplayMode: String(formData.get("childDisplayMode") ?? "all"),
         displayGroup: String(formData.get("displayGroup") ?? ""),
+        routineRule:
+          String(formData.get("category") ?? "") === "routine" ? readRoutineRule(form) : null,
         startDate: String(formData.get("startDate") ?? ""),
         dueDate: String(formData.get("dueDate") ?? ""),
         checklist: checklistText.split("\n"),
@@ -643,6 +724,8 @@ export function startTodoApp(root) {
       category: String(formData.get("category") ?? ""),
       childDisplayMode: String(formData.get("childDisplayMode") ?? "all"),
       displayGroup: String(formData.get("displayGroup") ?? ""),
+      routineRule:
+        String(formData.get("category") ?? "") === "routine" ? readRoutineRule(form) : null,
       startDate: String(formData.get("startDate") ?? ""),
       dueDate: String(formData.get("dueDate") ?? ""),
       checklist: checklistText.split("\n"),
@@ -663,6 +746,8 @@ export function startTodoApp(root) {
         nextTodo.createdAt = editing.createdAt;
         nextTodo.completed = editing.completed;
         nextTodo.completedAt = editing.completedAt;
+        nextTodo.routineLastCompletedAt =
+          nextTodo.category === "routine" ? editing.routineLastCompletedAt ?? null : null;
         nextTodo.checklist = nextTodo.checklist.map((item, index) => ({
           ...item,
           completed: editing.checklist[index]?.text === item.text
@@ -749,8 +834,30 @@ function readTodoDraft(form) {
     parentId: String(formData.get("parentId") ?? ""),
     childDisplayMode: String(formData.get("childDisplayMode") ?? "all"),
     displayGroup: String(formData.get("displayGroup") ?? ""),
+    routineRule:
+      String(formData.get("category") ?? "") === "routine" ? readRoutineRule(form) : null,
     checklist: String(formData.get("checklist") ?? ""),
     links: String(formData.get("links") ?? ""),
+  };
+}
+
+function readRoutineRule(form) {
+  const value = (name, fallback = "") =>
+    form.elements.namedItem(name)?.value ?? fallback;
+  const anchor = form.elements.namedItem("routineAnchorDate");
+  const anchorDate =
+    anchor?.dataset.preservedAnchor === "true"
+      ? anchor.value
+      : value("dueDate") || value("startDate") || anchor?.value || getLocalDateKey();
+  return {
+    type: value("routineType", "daily"),
+    anchorDate,
+    interval: value("routineInterval", "1"),
+    unit: value("routineUnit", "days"),
+    day: value("routineDay"),
+    month: value("routineMonth"),
+    weekday: value("routineWeekday"),
+    ordinal: value("routineOrdinal", "1"),
   };
 }
 

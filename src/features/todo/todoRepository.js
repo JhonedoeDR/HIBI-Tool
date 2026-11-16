@@ -1,9 +1,14 @@
-import { pruneExpiredTodos } from "./todoService.js";
+import { getLocalDateKey, pruneExpiredTodos } from "./todoService.js";
+import {
+  advanceMissedRoutineTodos,
+  createDefaultRoutineRule,
+  isRoutineRule,
+} from "./routineService.js";
 
 export const APP_STORAGE_KEY = "daily-tool.state.v1";
 export const TODO_STORAGE_KEY = "daily-tool.todos.v1";
 export const MAX_AUTOMATIC_BACKUPS = 10;
-const APP_SCHEMA_VERSION = 6;
+const APP_SCHEMA_VERSION = 7;
 
 export class TodoStorageError extends Error {
   constructor(message, options) {
@@ -28,7 +33,7 @@ export function createInitialGameState() {
   };
 }
 
-export function loadAppState(storage, today) {
+export function loadAppState(storage, today = getLocalDateKey()) {
   storage ??= getDefaultStorage();
   assertStorage(storage);
 
@@ -36,9 +41,14 @@ export function loadAppState(storage, today) {
   if (raw !== null) {
     const parsedState = parseAppState(raw);
     const { schemaVersion, ...state } = parsedState;
-    const todos = pruneExpiredTodos(state.todos, today);
+    const refreshedTodos = advanceRoutineDates(state.todos, today);
+    const todos = pruneExpiredTodos(refreshedTodos, today);
     const updatedState = { ...state, todos };
-    if (schemaVersion !== APP_SCHEMA_VERSION || todos.length !== state.todos.length) {
+    if (
+      schemaVersion !== APP_SCHEMA_VERSION ||
+      refreshedTodos !== state.todos ||
+      todos.length !== refreshedTodos.length
+    ) {
       return saveAppState(updatedState, storage);
     }
     return updatedState;
@@ -61,10 +71,18 @@ export function loadAppState(storage, today) {
     throw new TodoStorageError("Todoデータの形式が正しくありません。データは変更していません。");
   }
 
-  const state = {
-    todos: pruneExpiredTodos(todos, today),
+  const normalized = normalizeAppData({
+    todos,
     game: createInitialGameState(),
     calendarEvents: [],
+  });
+  if (!normalized) {
+    throw new TodoStorageError("Todoデータを新しい形式に変換できません。データは変更していません。");
+  }
+  const refreshedTodos = advanceRoutineDates(normalized.todos, today);
+  const state = {
+    ...normalized,
+    todos: pruneExpiredTodos(refreshedTodos, today),
   };
   return saveAppState(state, storage, { createBackup: false });
 }
@@ -135,6 +153,20 @@ function readStorage(storage, key) {
   }
 }
 
+function advanceRoutineDates(todos, today) {
+  try {
+    return advanceMissedRoutineTodos(todos, today);
+  } catch (cause) {
+    if (!(cause instanceof RangeError)) {
+      throw cause;
+    }
+    throw new TodoStorageError(
+      "ルーティンの次回日付を計算できません。保存データは変更していません。",
+      { cause },
+    );
+  }
+}
+
 function parseAppState(raw) {
   let parsed;
   try {
@@ -145,7 +177,7 @@ function parseAppState(raw) {
     });
   }
   if (
-    ![1, 2, 3, 4, 5, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
+    ![1, 2, 3, 4, 5, 6, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
     !Array.isArray(parsed.todos) ||
     !parsed.todos.every(isTodoRecord) ||
     (parsed.calendarEvents !== undefined &&
@@ -202,13 +234,29 @@ function normalizeAppData(data) {
   ) {
     return null;
   }
-  const todos = data.todos.map((todo) => ({
-    ...todo,
-    parentId: todo.parentId || null,
-    childOrder: todo.parentId ? todo.childOrder ?? null : null,
-    childDisplayMode: todo.childDisplayMode ?? "all",
-    displayGroup: todo.parentId ? todo.displayGroup ?? 1 : null,
-  }));
+  const todos = data.todos.map((todo) => {
+    const routineRule =
+      todo.category === "routine"
+        ? todo.routineRule ??
+          createDefaultRoutineRule(
+            todo.dueDate ??
+              todo.startDate ??
+              (isDateKey(String(todo.createdAt).slice(0, 10))
+                ? String(todo.createdAt).slice(0, 10)
+                : getLocalDateKey()),
+          )
+        : null;
+    return {
+      ...todo,
+      parentId: todo.parentId || null,
+      childOrder: todo.parentId ? todo.childOrder ?? null : null,
+      childDisplayMode: todo.childDisplayMode ?? "all",
+      displayGroup: todo.parentId ? todo.displayGroup ?? 1 : null,
+      dueDate: todo.category === "routine" ? todo.dueDate ?? routineRule.anchorDate : todo.dueDate,
+      routineRule,
+      routineLastCompletedAt: todo.routineLastCompletedAt ?? null,
+    };
+  });
   if (!isValidTodoHierarchy(todos)) {
     return null;
   }
@@ -429,6 +477,12 @@ function isTodoRecord(todo) {
       (Number.isSafeInteger(todo.displayGroup) &&
         todo.displayGroup >= 1 &&
         todo.displayGroup <= 100)) &&
+    (todo.routineRule === undefined ||
+      todo.routineRule === null ||
+      isRoutineRule(todo.routineRule)) &&
+    (todo.routineLastCompletedAt === undefined ||
+      todo.routineLastCompletedAt === null ||
+      typeof todo.routineLastCompletedAt === "string") &&
     ["main", "routine", "other"].includes(todo.category) &&
     (todo.startDate === null || isDateKey(todo.startDate)) &&
     (todo.dueDate === null || isDateKey(todo.dueDate)) &&

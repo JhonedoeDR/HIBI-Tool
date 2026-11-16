@@ -32,6 +32,8 @@ function todo(id, values = {}) {
     childOrder: null,
     childDisplayMode: "all",
     displayGroup: null,
+    routineRule: null,
+    routineLastCompletedAt: null,
     checklist: [],
     links: [],
     completed: false,
@@ -76,6 +78,33 @@ test("creates a Todo with normalized optional dates and checklist", () => {
   assert.equal(created.displayGroup, null);
   assert.equal(created.checklist.length, 1);
   assert.equal(created.checklist[0].completed, false);
+});
+
+test("creates a routine with a normalized recurrence and default scheduled date", () => {
+  const routine = createTodo(
+    {
+      title: "Drink water",
+      category: "routine",
+      startDate: "",
+      dueDate: "",
+      checklist: [],
+      links: [],
+      routineRule: {
+        type: "monthly",
+        anchorDate: "2025-01-16",
+        day: "31",
+      },
+    },
+    { id: "routine-1", now: new Date("2025-01-01T00:00:00.000Z") },
+  );
+
+  assert.equal(routine.dueDate, "2025-01-31");
+  assert.deepEqual(routine.routineRule, {
+    type: "monthly",
+    anchorDate: "2025-01-16",
+    day: 31,
+  });
+  assert.equal(routine.routineLastCompletedAt, null);
 });
 
 test("supports a parent Todo and expands selected parents to their descendants", () => {
@@ -298,6 +327,23 @@ test("repository migrates legacy Todo data without deleting its original copy", 
   assert.deepEqual(JSON.parse(storage.values.get(APP_STORAGE_KEY)).todos, legacyTodos);
 });
 
+test("legacy routine Todos migrate to the current scheduled date", () => {
+  const legacyRoutine = todo("legacy-routine", {
+    category: "routine",
+    createdAt: "2026-11-15T00:00:00.000Z",
+  });
+  delete legacyRoutine.routineRule;
+  delete legacyRoutine.routineLastCompletedAt;
+  const legacyTodos = [legacyRoutine];
+  const storage = memoryStorage({ [TODO_STORAGE_KEY]: JSON.stringify(legacyTodos) });
+
+  const state = loadAppState(storage, "2026-11-16");
+
+  assert.equal(state.todos[0].routineRule.type, "daily");
+  assert.equal(state.todos[0].dueDate, "2026-11-16");
+  assert.equal(storage.values.get(TODO_STORAGE_KEY), JSON.stringify(legacyTodos));
+});
+
 test("schema migration adds parent links and calendar events inherit child Todo links", () => {
   const storage = memoryStorage();
   const legacyTodo = todo("legacy");
@@ -305,10 +351,14 @@ test("schema migration adds parent links and calendar events inherit child Todo 
   delete legacyTodo.childOrder;
   delete legacyTodo.childDisplayMode;
   delete legacyTodo.displayGroup;
+  delete legacyTodo.routineRule;
+  delete legacyTodo.routineLastCompletedAt;
   const legacyChild = todo("legacy-child", { parentId: "legacy" });
   delete legacyChild.childOrder;
   delete legacyChild.childDisplayMode;
   delete legacyChild.displayGroup;
+  delete legacyChild.routineRule;
+  delete legacyChild.routineLastCompletedAt;
   storage.setItem(
     APP_STORAGE_KEY,
     JSON.stringify({
@@ -324,7 +374,7 @@ test("schema migration adds parent links and calendar events inherit child Todo 
   assert.equal(migrated.todos[0].displayGroup, null);
   assert.equal(migrated.todos[1].childOrder, 0);
   assert.equal(migrated.todos[1].displayGroup, 1);
-  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 6);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 7);
 
   const event = createCalendarEvent(
     {
@@ -346,6 +396,34 @@ test("schema migration adds parent links and calendar events inherit child Todo 
     storage,
   );
   assert.deepEqual(saved.calendarEvents[0].todoIds, ["parent", "child"]);
+});
+
+test("schema v6 gives legacy routine Todos a daily rule and advances missed dates", () => {
+  const storage = memoryStorage();
+  const legacyRoutine = todo("legacy-routine", {
+    category: "routine",
+    dueDate: "2026-11-15",
+  });
+  delete legacyRoutine.routineRule;
+  delete legacyRoutine.routineLastCompletedAt;
+  storage.setItem(
+    APP_STORAGE_KEY,
+    JSON.stringify({
+      schemaVersion: 6,
+      todos: [legacyRoutine],
+      game: createInitialGameState(),
+      calendarEvents: [],
+    }),
+  );
+
+  const migrated = loadAppState(storage, "2026-11-16");
+
+  assert.deepEqual(migrated.todos[0].routineRule, {
+    type: "daily",
+    anchorDate: "2026-11-15",
+  });
+  assert.equal(migrated.todos[0].dueDate, "2026-11-16");
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 7);
 });
 
 test("repository rejects missing parents and cyclic Todo relationships", () => {

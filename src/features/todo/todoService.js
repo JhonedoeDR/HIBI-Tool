@@ -1,3 +1,9 @@
+import {
+  createDefaultRoutineRule,
+  getFirstRoutineDate,
+  normalizeRoutineRule,
+} from "./routineService.js";
+
 export const TODO_CATEGORIES = ["main", "routine", "other"];
 export const TODO_CHILD_DISPLAY_MODES = ["all", "sequential", "custom"];
 
@@ -22,7 +28,7 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
   const title = input.title.trim();
   const category = input.category;
   const startDate = normalizeDate(input.startDate, "開始日");
-  const dueDate = normalizeDate(input.dueDate, "期限");
+  let dueDate = normalizeDate(input.dueDate, "期限");
   const parentId =
     input.parentId === "" || input.parentId === undefined || input.parentId === null
       ? null
@@ -42,6 +48,26 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
   const displayGroup = normalizeDisplayGroup(input.displayGroup, parentId);
   if (!TODO_CATEGORIES.includes(category)) {
     throw new TodoValidationError("分類を選択してください。");
+  }
+  const routineRule =
+    category === "routine"
+      ? normalizeRoutineRule(
+          input.routineRule ??
+            createDefaultRoutineRule(dueDate ?? startDate ?? getLocalDateKey(now)),
+        )
+      : null;
+  if (category === "routine" && !routineRule) {
+    throw new TodoValidationError("ルーティン周期の設定が正しくありません。");
+  }
+  if (category === "routine" && !dueDate) {
+    try {
+      dueDate = getFirstRoutineDate(routineRule);
+    } catch (error) {
+      if (!(error instanceof RangeError)) {
+        throw error;
+      }
+      throw new TodoValidationError(error.message);
+    }
   }
   if (startDate && dueDate && startDate > dueDate) {
     throw new TodoValidationError("開始日は期限以前の日付にしてください。");
@@ -64,6 +90,8 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
     childOrder,
     childDisplayMode,
     displayGroup,
+    routineRule,
+    routineLastCompletedAt: null,
     checklist,
     links,
     completed: false,

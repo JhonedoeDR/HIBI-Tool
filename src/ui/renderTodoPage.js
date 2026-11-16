@@ -4,6 +4,7 @@ import {
   getTodoDescendantIds,
   getLocalDateKey,
 } from "../features/todo/todoService.js";
+import { getRoutineLabel } from "../features/todo/routineService.js";
 
 const CATEGORY_OPTIONS = [
   ["main", "メイン"],
@@ -220,7 +221,9 @@ function renderTodo(todo, state) {
 
   const completion = element("input", "completion-checkbox");
   completion.type = "checkbox";
-  completion.disabled = !state.storageReady;
+  completion.disabled =
+    !state.storageReady ||
+    (todo.category === "routine" && Boolean(todo.dueDate) && todo.dueDate > getLocalDateKey());
   completion.checked = todo.completed;
   completion.dataset.action = "complete-todo";
   completion.dataset.todoId = todo.id;
@@ -272,6 +275,14 @@ function renderTodoMeta(todo, notStarted) {
     meta.append(element("span", "", `期限 ${formatDate(todo.dueDate)}`));
   } else {
     meta.append(element("span", "", "期限なし"));
+  }
+  if (todo.routineRule) {
+    meta.append(element("span", "", `周期 ${getRoutineLabel(todo.routineRule)}`));
+  }
+  if (todo.routineLastCompletedAt) {
+    meta.append(
+      element("span", "", `前回完了 ${formatDate(todo.routineLastCompletedAt.slice(0, 10))}`),
+    );
   }
   return meta;
 }
@@ -359,9 +370,16 @@ function renderTodoDialog(state) {
 
   const details = element("details", "advanced-fields");
   details.open = state.todoDraft !== null;
-  details.append(element("summary", "", "詳細設定（親Todo・チェックリスト・リンク）"));
+  details.append(
+    element("summary", "", "詳細設定（親Todo・ルーティン周期・チェックリスト・リンク）"),
+  );
   details.append(
     parentTodoField(todo, state.todos, draft.parentId ?? todo?.parentId ?? ""),
+    routineFields(
+      draft.routineRule ?? todo?.routineRule,
+      draft.category ?? todo?.category ?? state.category,
+      draft.dueDate ?? todo?.dueDate ?? draft.startDate ?? todo?.startDate,
+    ),
     field(
       "子Todoの表示方式",
       childDisplayModeSelect(draft.childDisplayMode ?? todo?.childDisplayMode ?? "all"),
@@ -491,14 +509,14 @@ function renderChildTodoDialog(state) {
   const parentLabel = element(
     "p",
     "child-todo-parent",
-    `親Todo: ${(parent?.title ?? state.todoDraft?.title) || "新しいTodo"}`,
+    `親Todo: ${(state.todoDraft?.title ?? parent?.title) || "新しいTodo"}`,
   );
   const fields = element("div", "form-fields");
   fields.append(
     field("タスク名", textInput("title", "", "child-todo-title", true)),
     field(
       "分類",
-      categorySelect(parent?.category ?? state.todoDraft?.category ?? state.category),
+      categorySelect(state.todoDraft?.category ?? parent?.category ?? state.category),
     ),
     field("子Todoの表示方式", childDisplayModeSelect("all")),
     field(
@@ -514,7 +532,13 @@ function renderChildTodoDialog(state) {
   );
 
   const details = element("details", "advanced-fields");
-  details.append(element("summary", "", "詳細設定（チェックリスト・リンク）"));
+  details.append(element("summary", "", "詳細設定（ルーティン周期・チェックリスト・リンク）"));
+  details.append(
+    routineFields(
+      null,
+      state.todoDraft?.category ?? parent?.category ?? state.category,
+    ),
+  );
   const checklist = element("textarea", "");
   checklist.name = "checklist";
   checklist.rows = 3;
@@ -564,6 +588,175 @@ function displayGroupInput(value) {
   input.step = "1";
   input.value = String(value);
   return input;
+}
+
+function routineFields(rule, category, anchorDateValue = "") {
+  const anchorDate = rule?.anchorDate || anchorDateValue || getLocalDateKey();
+  const section = element("div", "routine-fields form-fields");
+  section.dataset.routineFields = "";
+  section.hidden = category !== "routine";
+
+  const type = element("select", "");
+  type.name = "routineType";
+  for (const [value, label] of [
+    ["daily", "毎日"],
+    ["weekly", "毎週"],
+    ["monthly", "毎月（指定日）"],
+    ["yearly", "毎年（特定月日）"],
+    ["interval", "任意の間隔"],
+    ["monthly-weekday", "毎月第○曜日"],
+    ["yearly-weekday", "毎年の第○曜日"],
+  ]) {
+    const option = element("option", "", label);
+    option.value = value;
+    type.append(option);
+  }
+  type.value = rule?.type ?? "daily";
+  const anchorInput = dateInput("routineAnchorDate", anchorDate);
+  anchorInput.dataset.preservedAnchor = rule && category === "routine" ? "true" : "";
+  section.append(
+    field(
+      "繰り返し方式",
+      type,
+      "完了後は次回日まで進み、期限を過ぎた未完了分は次の周期へ進みます。",
+    ),
+    field(
+      "周期の基準日",
+      anchorInput,
+      "毎月・毎年の周期と任意間隔の基準になります。",
+    ),
+  );
+
+  const interval = element("input", "");
+  interval.type = "number";
+  interval.name = "routineInterval";
+  interval.min = "1";
+  interval.max = "999";
+  interval.step = "1";
+  interval.value = String(rule?.interval ?? 1);
+  section.append(
+    routineConditionField(
+      "間隔",
+      interval,
+      "interval",
+    ),
+    routineConditionField(
+      "間隔の単位",
+      routineUnitSelect(rule?.unit ?? "days"),
+      "interval",
+    ),
+  );
+
+  const monthlyDay = element("input", "");
+  monthlyDay.type = "number";
+  monthlyDay.name = "routineDay";
+  monthlyDay.min = "1";
+  monthlyDay.max = "31";
+  monthlyDay.step = "1";
+  monthlyDay.value = String(rule?.day ?? (Number(anchorDate.slice(8, 10)) || 1));
+  section.append(
+    routineConditionField("日付", monthlyDay, "monthly yearly"),
+    routineConditionField(
+      "毎年の月",
+      monthSelect(rule?.month ?? Number(anchorDate.slice(5, 7))),
+      "yearly yearly-weekday",
+    ),
+  );
+
+  const weekday = weekdaySelect(rule?.weekday ?? new Date(`${anchorDate}T00:00:00`).getDay());
+  const ordinal = ordinalSelect(rule?.ordinal ?? 1);
+  section.append(
+    routineConditionField("曜日", weekday, "monthly-weekday yearly-weekday"),
+    routineConditionField("何回目", ordinal, "monthly-weekday yearly-weekday"),
+  );
+  section.querySelectorAll("input, select").forEach((input) => {
+    input.disabled = category !== "routine";
+  });
+  updateRoutineFields(section, type.value, category === "routine");
+  return section;
+}
+
+function routineConditionField(label, input, types) {
+  const wrapper = field(label, input);
+  wrapper.dataset.routineWhen = types;
+  return wrapper;
+}
+
+function routineUnitSelect(value) {
+  const select = element("select", "");
+  select.name = "routineUnit";
+  for (const [unit, label] of [
+    ["days", "日ごと"],
+    ["weeks", "週間ごと"],
+    ["months", "か月ごと"],
+    ["years", "年ごと"],
+  ]) {
+    const option = element("option", "", label);
+    option.value = unit;
+    select.append(option);
+  }
+  select.value = value;
+  return select;
+}
+
+function monthSelect(value) {
+  const select = element("select", "");
+  select.name = "routineMonth";
+  for (let month = 1; month <= 12; month += 1) {
+    const option = element("option", "", `${month}月`);
+    option.value = String(month);
+    select.append(option);
+  }
+  select.value = String(value);
+  return select;
+}
+
+function weekdaySelect(value) {
+  const select = element("select", "");
+  select.name = "routineWeekday";
+  for (const [weekday, label] of ["日", "月", "火", "水", "木", "金", "土"].entries()) {
+    const option = element("option", "", `${label}曜日`);
+    option.value = String(weekday);
+    select.append(option);
+  }
+  select.value = String(value);
+  return select;
+}
+
+function ordinalSelect(value) {
+  const select = element("select", "");
+  select.name = "routineOrdinal";
+  for (const [ordinal, label] of [
+    ["1", "第1"],
+    ["2", "第2"],
+    ["3", "第3"],
+    ["4", "第4"],
+    ["5", "第5"],
+    ["last", "最後"],
+  ]) {
+    const option = element("option", "", label);
+    option.value = ordinal;
+    select.append(option);
+  }
+  select.value = String(value);
+  return select;
+}
+
+export function updateRoutineFields(section, type, enabled = true) {
+  if (!section) {
+    return;
+  }
+  section.hidden = !enabled;
+  section.querySelectorAll("input, select").forEach((input) => {
+    input.disabled = !enabled;
+  });
+  for (const wrapper of section.querySelectorAll("[data-routine-when]")) {
+    const visible = enabled && wrapper.dataset.routineWhen.split(" ").includes(type);
+    wrapper.hidden = !visible;
+    wrapper.querySelectorAll("input, select").forEach((input) => {
+      input.disabled = !visible;
+    });
+  }
 }
 
 function parentTodoField(todo, todos, parentId) {

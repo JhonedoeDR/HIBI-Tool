@@ -660,6 +660,11 @@ textarea:focus-visible {
   margin-bottom: 15px;
 }
 
+.routine-fields[hidden],
+.routine-fields [hidden] {
+  display: none;
+}
+
 .two-columns {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

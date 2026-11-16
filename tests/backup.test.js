@@ -33,6 +33,8 @@ function todo(id) {
     childOrder: null,
     childDisplayMode: "all",
     displayGroup: null,
+    routineRule: null,
+    routineLastCompletedAt: null,
     checklist: [],
     links: [],
     completed: false,
@@ -44,7 +46,15 @@ function todo(id) {
 
 test("JSON backups round-trip all application data without nesting automatic backups", () => {
   const data = {
-    todos: [todo("task-1")],
+    todos: [
+      todo("task-1"),
+      {
+        ...todo("routine-1"),
+        category: "routine",
+        dueDate: "2026-11-30",
+        routineRule: { type: "monthly", anchorDate: "2026-11-30", day: 30 },
+      },
+    ],
     game: { ...createInitialGameState(), jewels: 120 },
     calendarEvents: [
       createCalendarEvent(
