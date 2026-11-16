@@ -1,4 +1,6 @@
 import { renderTodoPage } from "../../ui/renderTodoPage.js";
+import { renderGamePage } from "../../ui/renderGamePage.js";
+import { awardTodoCompletion } from "../game/gameService.js";
 import {
   createTodo,
   getLocalDateKey,
@@ -7,14 +9,21 @@ import {
   setTodoCompletion,
   TodoValidationError,
 } from "./todoService.js";
-import { loadTodos, saveTodos, TodoStorageError } from "./todoRepository.js";
+import {
+  createInitialGameState,
+  loadAppState,
+  saveAppState,
+  TodoStorageError,
+} from "./todoRepository.js";
 
 const CATEGORIES = ["main", "routine", "other"];
 
 export function startTodoApp(root) {
   const state = {
     todos: [],
+    game: createInitialGameState(),
     storageReady: true,
+    view: "todo",
     category: "main",
     dueFilter: "all",
     sort: "due",
@@ -25,7 +34,7 @@ export function startTodoApp(root) {
   };
 
   try {
-    state.todos = loadTodos();
+    Object.assign(state, loadAppState());
   } catch (error) {
     if (!(error instanceof TodoStorageError)) {
       throw error;
@@ -35,6 +44,10 @@ export function startTodoApp(root) {
   }
 
   function render() {
+    if (state.view === "game") {
+      root.replaceChildren(renderGamePage(state));
+      return;
+    }
     const today = getLocalDateKey();
     root.replaceChildren(
       renderTodoPage({
@@ -57,9 +70,14 @@ export function startTodoApp(root) {
   }
 
   function persist(nextTodos) {
+    persistAppState(nextTodos, state.game);
+  }
+
+  function persistAppState(nextTodos, nextGame) {
     try {
-      saveTodos(nextTodos);
+      saveAppState({ todos: nextTodos, game: nextGame });
       state.todos = nextTodos;
+      state.game = nextGame;
       state.error = "";
       render();
     } catch (error) {
@@ -80,8 +98,11 @@ export function startTodoApp(root) {
       return;
     }
 
-    const { action, todoId, category } = button.dataset;
-    if (action === "change-category" && CATEGORIES.includes(category)) {
+    const { action, todoId, category, view } = button.dataset;
+    if (action === "change-view" && (view === "todo" || view === "game")) {
+      state.view = view;
+      render();
+    } else if (action === "change-category" && CATEGORIES.includes(category)) {
       state.category = category;
       state.selectedIds.clear();
       render();
@@ -162,7 +183,23 @@ export function startTodoApp(root) {
       if (!state.storageReady) {
         return;
       }
-      persist(setTodoCompletion(state.todos, target.dataset.todoId, target.checked));
+      const currentTodo = state.todos.find((todo) => todo.id === target.dataset.todoId);
+      if (!currentTodo) {
+        return;
+      }
+      const completedAt = target.checked ? new Date() : null;
+      const nextTodos = setTodoCompletion(
+        state.todos,
+        target.dataset.todoId,
+        target.checked,
+        completedAt ?? new Date(),
+      );
+      const updatedTodo = nextTodos.find((todo) => todo.id === target.dataset.todoId);
+      const nextGame =
+        target.checked && !currentTodo.completed
+          ? awardTodoCompletion(state.game, updatedTodo, updatedTodo.completedAt)
+          : state.game;
+      persistAppState(nextTodos, nextGame);
     } else if (target.dataset.action === "complete-checklist") {
       if (!state.storageReady) {
         return;
@@ -219,7 +256,7 @@ export function startTodoApp(root) {
       const nextTodos = editing
         ? state.todos.map((todo) => (todo.id === editing.id ? nextTodo : todo))
         : [...state.todos, nextTodo];
-      saveTodos(nextTodos);
+      saveAppState({ todos: nextTodos, game: state.game });
       state.todos = nextTodos;
       state.dialogOpen = false;
       state.editingId = null;
@@ -231,7 +268,10 @@ export function startTodoApp(root) {
         throw error;
       }
       state.error = error.message;
-      root.querySelector("#todo-form-error").textContent = error.message;
+      const formError = root.querySelector("#todo-form-error");
+      if (formError) {
+        formError.textContent = error.message;
+      }
     }
   });
 

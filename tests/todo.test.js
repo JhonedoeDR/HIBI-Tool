@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createTodo, getVisibleTodos, pruneExpiredTodos, setTodoCompletion } from "../src/features/todo/todoService.js";
-import { loadTodos, saveTodos, TodoStorageError, TODO_STORAGE_KEY } from "../src/features/todo/todoRepository.js";
+import {
+  APP_STORAGE_KEY,
+  createInitialGameState,
+  loadAppState,
+  saveAppState,
+  TodoStorageError,
+  TODO_STORAGE_KEY,
+} from "../src/features/todo/todoRepository.js";
 
 function todo(id, values = {}) {
   return {
@@ -103,11 +110,32 @@ test("completion updates are idempotent and preserve unrelated todos", () => {
 
 test("repository prunes expired records and refuses to overwrite malformed data", () => {
   const storage = memoryStorage();
-  saveTodos([todo("expired", { dueDate: "2025-04-30" }), todo("current")], storage);
-  assert.deepEqual(loadTodos(storage, "2025-05-08").map((item) => item.id), ["current"]);
-  assert.deepEqual(JSON.parse(storage.values.get(TODO_STORAGE_KEY)).map((item) => item.id), ["current"]);
+  saveAppState(
+    {
+      todos: [todo("expired", { dueDate: "2025-04-30" }), todo("current")],
+      game: createInitialGameState(),
+    },
+    storage,
+  );
+  assert.deepEqual(loadAppState(storage, "2025-05-08").todos.map((item) => item.id), ["current"]);
+  assert.deepEqual(
+    JSON.parse(storage.values.get(APP_STORAGE_KEY)).todos.map((item) => item.id),
+    ["current"],
+  );
 
-  storage.setItem(TODO_STORAGE_KEY, "{invalid");
-  assert.throws(() => loadTodos(storage, "2025-05-08"), TodoStorageError);
-  assert.equal(storage.values.get(TODO_STORAGE_KEY), "{invalid");
+  storage.setItem(APP_STORAGE_KEY, "{invalid");
+  assert.throws(() => loadAppState(storage, "2025-05-08"), TodoStorageError);
+  assert.equal(storage.values.get(APP_STORAGE_KEY), "{invalid");
+});
+
+test("repository migrates legacy Todo data without deleting its original copy", () => {
+  const legacyTodos = [todo("legacy")];
+  const storage = memoryStorage({ [TODO_STORAGE_KEY]: JSON.stringify(legacyTodos) });
+
+  const state = loadAppState(storage, "2025-05-08");
+
+  assert.deepEqual(state.todos, legacyTodos);
+  assert.equal(state.game.normalPoints, 0);
+  assert.equal(storage.values.get(TODO_STORAGE_KEY), JSON.stringify(legacyTodos));
+  assert.deepEqual(JSON.parse(storage.values.get(APP_STORAGE_KEY)).todos, legacyTodos);
 });

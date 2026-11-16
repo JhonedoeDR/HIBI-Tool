@@ -11,7 +11,7 @@ const CATEGORY_OPTIONS = [
 
 export function renderTodoPage(state) {
   const shell = element("div", "app-layout");
-  shell.append(renderSidebar());
+  shell.append(renderSidebar(state.view));
 
   const main = element("main", "main-content");
   main.append(renderTopbar(), renderHeading(state), renderSummary(state));
@@ -21,7 +21,7 @@ export function renderTodoPage(state) {
   return shell;
 }
 
-function renderSidebar() {
+export function renderSidebar(view = "todo") {
   const sidebar = element("aside", "sidebar");
   const brand = element("a", "brand", undefined, { href: "./", "aria-label": "Daily-tool ホーム" });
   brand.append(element("span", "brand-mark", "D"));
@@ -32,9 +32,9 @@ function renderSidebar() {
   const navigation = element("nav", "primary-nav");
   navigation.setAttribute("aria-label", "メインメニュー");
   navigation.append(
-    navButton("✓", "Todo", true),
+    navButton("✓", "Todo", "todo", view),
     navButton("▦", "カレンダー"),
-    navButton("◇", "ゲーム"),
+    navButton("◇", "ゲーム", "game", view),
     navButton("▣", "武器・アイテム"),
     navButton("⚙", "データ管理"),
   );
@@ -48,10 +48,15 @@ function renderSidebar() {
   return sidebar;
 }
 
-function navButton(symbol, label, active = false) {
+function navButton(symbol, label, view, currentView) {
+  const active = Boolean(view && view === currentView);
   const button = element("button", `nav-item${active ? " is-active" : ""}`);
   button.type = "button";
-  button.disabled = !active;
+  button.disabled = !view;
+  if (view) {
+    button.dataset.action = "change-view";
+    button.dataset.view = view;
+  }
   button.setAttribute("aria-current", active ? "page" : "false");
   button.append(element("span", "nav-symbol", symbol), element("span", "", label));
   return button;
