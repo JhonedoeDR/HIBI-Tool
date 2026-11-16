@@ -32,6 +32,18 @@ export function awardTodoCompletion(game, todo, completedAt) {
   };
 }
 
+export function awardCalendarCompletion(game, event) {
+  const eventId = `calendar:${event.id}`;
+  if (game.rewardedEventIds.includes(eventId)) {
+    return game;
+  }
+  return {
+    ...game,
+    normalPoints: game.normalPoints + 5,
+    rewardedEventIds: [...game.rewardedEventIds, eventId],
+  };
+}
+
 export function getLoginBonusStatus(loginBonus, now = new Date()) {
   const businessDate = getJstBusinessDate(now);
   const canClaim = loginBonus.lastClaimDate === null || loginBonus.lastClaimDate < businessDate;

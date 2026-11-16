@@ -33,7 +33,7 @@ export function renderSidebar(view = "todo") {
   navigation.setAttribute("aria-label", "メインメニュー");
   navigation.append(
     navButton("✓", "Todo", "todo", view),
-    navButton("▦", "カレンダー"),
+    navButton("▦", "カレンダー", "calendar", view),
     navButton("◇", "ゲーム", "game", view),
     navButton("▣", "武器・アイテム"),
     navButton("⚙", "データ管理", "data", view),

@@ -3,7 +3,7 @@ import { pruneExpiredTodos } from "./todoService.js";
 export const APP_STORAGE_KEY = "daily-tool.state.v1";
 export const TODO_STORAGE_KEY = "daily-tool.todos.v1";
 export const MAX_AUTOMATIC_BACKUPS = 10;
-const APP_SCHEMA_VERSION = 3;
+const APP_SCHEMA_VERSION = 4;
 
 export class TodoStorageError extends Error {
   constructor(message, options) {
@@ -46,7 +46,7 @@ export function loadAppState(storage, today) {
 
   const legacyTodos = readStorage(storage, TODO_STORAGE_KEY);
   if (legacyTodos === null) {
-    return { todos: [], game: createInitialGameState() };
+    return { todos: [], game: createInitialGameState(), calendarEvents: [], backups: [] };
   }
 
   let todos;
@@ -61,7 +61,11 @@ export function loadAppState(storage, today) {
     throw new TodoStorageError("Todoデータの形式が正しくありません。データは変更していません。");
   }
 
-  const state = { todos: pruneExpiredTodos(todos, today), game: createInitialGameState() };
+  const state = {
+    todos: pruneExpiredTodos(todos, today),
+    game: createInitialGameState(),
+    calendarEvents: [],
+  };
   return saveAppState(state, storage, { createBackup: false });
 }
 
@@ -84,7 +88,11 @@ export function saveAppState(state, storage, { createBackup = true } = {}) {
         {
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString(),
-          data: { todos: previous.todos, game: previous.game },
+          data: {
+            todos: previous.todos,
+            game: previous.game,
+            calendarEvents: previous.calendarEvents,
+          },
         },
       ].slice(-MAX_AUTOMATIC_BACKUPS);
     }
@@ -101,6 +109,7 @@ export function saveAppState(state, storage, { createBackup = true } = {}) {
     schemaVersion: APP_SCHEMA_VERSION,
     todos: data.todos,
     game: data.game,
+    calendarEvents: data.calendarEvents,
     backups,
   });
   try {
@@ -136,9 +145,12 @@ function parseAppState(raw) {
     });
   }
   if (
-    ![1, 2, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
+    ![1, 2, 3, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
     !Array.isArray(parsed.todos) ||
     !parsed.todos.every(isTodoRecord) ||
+    (parsed.calendarEvents !== undefined &&
+      (!Array.isArray(parsed.calendarEvents) ||
+        !parsed.calendarEvents.every(isCalendarEvent))) ||
     parsed.game === null ||
     typeof parsed.game !== "object" ||
     (parsed.backups !== undefined &&
@@ -162,6 +174,7 @@ function parseAppState(raw) {
     schemaVersion: parsed.schemaVersion,
     todos: parsed.todos,
     game,
+    calendarEvents: parsed.calendarEvents ?? [],
     backups: parsed.backups ?? [],
   };
 }
@@ -175,6 +188,9 @@ function normalizeAppData(data) {
     !data ||
     !Array.isArray(data.todos) ||
     !data.todos.every(isTodoRecord) ||
+    (data.calendarEvents !== undefined &&
+      (!Array.isArray(data.calendarEvents) ||
+        !data.calendarEvents.every(isCalendarEvent))) ||
     !data.game ||
     typeof data.game !== "object"
   ) {
@@ -188,11 +204,18 @@ function normalizeAppData(data) {
   if (!isGameState(game)) {
     return null;
   }
-  return { todos: data.todos, game };
+  return { todos: data.todos, game, calendarEvents: data.calendarEvents ?? [] };
 }
 
 function sameAppData(left, right) {
-  return JSON.stringify(left) === JSON.stringify({ todos: right.todos, game: right.game });
+  return (
+    JSON.stringify(left) ===
+    JSON.stringify({
+      todos: right.todos,
+      game: right.game,
+      calendarEvents: right.calendarEvents,
+    })
+  );
 }
 
 function isBackupRecord(backup) {
@@ -203,6 +226,45 @@ function isBackupRecord(backup) {
     isTimestamp(backup.createdAt) &&
     normalizeAppData(backup.data) !== null
   );
+}
+
+function isCalendarEvent(event) {
+  const isTime = (value) => typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+  const isDuration = (value) => Number.isSafeInteger(value) && value >= 0 && value <= 1440;
+  const validCommon =
+    event !== null &&
+    typeof event === "object" &&
+    typeof event.id === "string" &&
+    typeof event.title === "string" &&
+    isDateKey(event.date) &&
+    typeof event.completed === "boolean" &&
+    (event.completedAt === null || typeof event.completedAt === "string") &&
+    typeof event.createdAt === "string" &&
+    typeof event.updatedAt === "string" &&
+    Array.isArray(event.todoIds) &&
+    event.todoIds.every((id) => typeof id === "string");
+  if (!validCommon) {
+    return false;
+  }
+  if (event.type === "appointment") {
+    return (
+      isTime(event.startTime) &&
+      isDuration(event.travelMinutes) &&
+      isDuration(event.preparationMinutes) &&
+      isDuration(event.arrivalLeadMinutes) &&
+      typeof event.location === "string"
+    );
+  }
+  if (event.type === "deadline") {
+    return (
+      isTime(event.dueTime) &&
+      Array.isArray(event.notificationOffsets) &&
+      event.notificationOffsets.every((offset) =>
+        ["30m", "1h", "3h", "1d", "3d", "7d"].includes(offset),
+      )
+    );
+  }
+  return false;
 }
 
 function isTimestamp(value) {

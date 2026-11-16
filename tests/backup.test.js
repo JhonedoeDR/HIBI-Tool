@@ -8,6 +8,7 @@ import {
   saveAppState,
   TodoStorageError,
 } from "../src/features/todo/todoRepository.js";
+import { createCalendarEvent } from "../src/features/calendar/calendarService.js";
 
 function memoryStorage() {
   const values = new Map();
@@ -41,6 +42,21 @@ test("JSON backups round-trip all application data without nesting automatic bac
   const data = {
     todos: [todo("task-1")],
     game: { ...createInitialGameState(), jewels: 120 },
+    calendarEvents: [
+      createCalendarEvent(
+        {
+          type: "appointment",
+          title: "Doctor",
+          date: "2026-11-18",
+          startTime: "10:30",
+          travelMinutes: 25,
+          preparationMinutes: 15,
+          arrivalLeadMinutes: 5,
+          location: "Clinic",
+        },
+        { id: "event-1", now: new Date("2026-11-16T08:00:00.000Z") },
+      ),
+    ],
   };
   const json = createBackupJson(data, new Date("2026-11-16T10:00:00.000Z"));
 

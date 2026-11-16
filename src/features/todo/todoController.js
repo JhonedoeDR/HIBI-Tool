@@ -1,13 +1,23 @@
 import { renderTodoPage } from "../../ui/renderTodoPage.js";
 import { renderGamePage } from "../../ui/renderGamePage.js";
 import { renderDataPage } from "../../ui/renderDataPage.js";
+import { renderCalendarPage } from "../../ui/renderCalendarPage.js";
 import { BackupFormatError, createBackupJson, parseBackupJson } from "../data/backupService.js";
 import {
+  awardCalendarCompletion,
   awardTodoCompletion,
   claimLoginBonus,
   getLoginBonusStatus,
   getMillisecondsUntilJstCutover,
 } from "../game/gameService.js";
+import {
+  CalendarValidationError,
+  createCalendarEvent,
+  getCurrentMonthKey,
+  getLocalDateKey as getCalendarDateKey,
+  setCalendarCompletion,
+  shiftMonth,
+} from "../calendar/calendarService.js";
 import {
   createTodo,
   getLocalDateKey,
@@ -30,9 +40,16 @@ export function startTodoApp(root) {
   const state = {
     todos: [],
     game: createInitialGameState(),
+    calendarEvents: [],
     backups: [],
     storageReady: true,
     view: "todo",
+    calendarMonth: getCurrentMonthKey(),
+    calendarDefaultDate: getCalendarDateKey(),
+    calendarType: "appointment",
+    calendarDialogOpen: false,
+    calendarEditingId: null,
+    calendarDetailId: null,
     category: "main",
     dueFilter: "all",
     sort: "due",
@@ -75,6 +92,17 @@ export function startTodoApp(root) {
       root.replaceChildren(renderDataPage({ ...state, maxBackups: MAX_AUTOMATIC_BACKUPS }));
       return;
     }
+    if (state.view === "calendar") {
+      root.replaceChildren(renderCalendarPage(state));
+      if (state.calendarDialogOpen) {
+        root.querySelector("#calendar-dialog")?.showModal();
+        root.querySelector("#calendar-event-title")?.focus();
+      }
+      if (state.calendarDetailId) {
+        root.querySelector("#calendar-details-dialog")?.showModal();
+      }
+      return;
+    }
     const today = getLocalDateKey();
     root.replaceChildren(
       renderTodoPage({
@@ -100,11 +128,16 @@ export function startTodoApp(root) {
     persistAppState(nextTodos, state.game);
   }
 
-  function persistAppState(nextTodos, nextGame) {
+  function persistAppState(nextTodos, nextGame, nextCalendarEvents = state.calendarEvents) {
     try {
-      const savedState = saveAppState({ todos: nextTodos, game: nextGame });
+      const savedState = saveAppState({
+        todos: nextTodos,
+        game: nextGame,
+        calendarEvents: nextCalendarEvents,
+      });
       state.todos = savedState.todos;
       state.game = savedState.game;
+      state.calendarEvents = savedState.calendarEvents;
       state.backups = savedState.backups;
       state.error = "";
       render();
@@ -127,8 +160,58 @@ export function startTodoApp(root) {
     }
 
     const { action, todoId, category, view } = button.dataset;
-    if (action === "change-view" && ["todo", "game", "data"].includes(view)) {
+    if (action === "change-view" && ["todo", "game", "data", "calendar"].includes(view)) {
       state.view = view;
+      render();
+    } else if (action === "previous-month") {
+      state.calendarMonth = shiftMonth(state.calendarMonth, -1);
+      render();
+    } else if (action === "next-month") {
+      state.calendarMonth = shiftMonth(state.calendarMonth, 1);
+      render();
+    } else if (action === "current-month") {
+      state.calendarMonth = getCurrentMonthKey();
+      render();
+    } else if (action === "new-calendar-event" && state.storageReady) {
+      state.calendarEditingId = null;
+      state.calendarType = "appointment";
+      state.calendarDefaultDate = getCalendarDateKey();
+      state.calendarDialogOpen = true;
+      state.error = "";
+      render();
+    } else if (action === "show-calendar-event") {
+      if (state.calendarEvents.some((event) => event.id === button.dataset.eventId)) {
+        state.calendarDetailId = button.dataset.eventId;
+        state.error = "";
+        render();
+      }
+    } else if (action === "edit-calendar-event" && state.storageReady) {
+      const event = state.calendarEvents.find((item) => item.id === button.dataset.eventId);
+      if (event) {
+        state.calendarDetailId = null;
+        state.calendarEditingId = event.id;
+        state.calendarType = event.type;
+        state.calendarDialogOpen = true;
+        state.error = "";
+        render();
+      }
+    } else if (action === "delete-calendar-event" && state.storageReady) {
+      const event = state.calendarEvents.find((item) => item.id === button.dataset.eventId);
+      if (event && window.confirm(`「${event.title}」を削除しますか？`)) {
+        state.calendarDetailId = null;
+        persistAppState(
+          state.todos,
+          state.game,
+          state.calendarEvents.filter((item) => item.id !== event.id),
+        );
+      }
+    } else if (action === "close-calendar-dialog") {
+      state.calendarDialogOpen = false;
+      state.calendarEditingId = null;
+      state.error = "";
+      render();
+    } else if (action === "close-calendar-details") {
+      state.calendarDetailId = null;
       render();
     } else if (action === "claim-login-bonus" && state.storageReady) {
       const nextGame = claimLoginBonus(state.game);
@@ -137,7 +220,7 @@ export function startTodoApp(root) {
       }
     } else if (action === "export-backup" && state.storageReady) {
       try {
-        downloadBackup(state.todos, state.game);
+        downloadBackup(state.todos, state.game, state.calendarEvents);
         state.error = "";
         render();
       } catch (error) {
@@ -150,7 +233,7 @@ export function startTodoApp(root) {
         backup &&
         window.confirm("現在のTodoとゲームデータを選択したバックアップで全置換しますか？")
       ) {
-        persistAppState(backup.data.todos, backup.data.game);
+        persistAppState(backup.data.todos, backup.data.game, backup.data.calendarEvents);
       }
     } else if (action === "change-category" && CATEGORIES.includes(category)) {
       state.category = category;
@@ -221,7 +304,7 @@ export function startTodoApp(root) {
         if (
           window.confirm("現在のTodoとゲームデータを選択したJSONで全置換しますか？")
         ) {
-          persistAppState(data.todos, data.game);
+          persistAppState(data.todos, data.game, data.calendarEvents);
         }
       } catch (error) {
         if (!(error instanceof BackupFormatError)) {
@@ -230,6 +313,20 @@ export function startTodoApp(root) {
           state.error = error.message;
         }
         render();
+      }
+      return;
+    }
+
+    if (target.dataset.action === "calendar-event-type") {
+      const form = root.querySelector("#calendar-event-form");
+      state.calendarType = target.value;
+      if (form) {
+        const appointmentFields = form.querySelector("#appointment-fields");
+        const deadlineFields = form.querySelector("#deadline-fields");
+        appointmentFields.hidden = target.value !== "appointment";
+        appointmentFields.disabled = target.value !== "appointment";
+        deadlineFields.hidden = target.value !== "deadline";
+        deadlineFields.disabled = target.value !== "deadline";
       }
       return;
     }
@@ -279,6 +376,26 @@ export function startTodoApp(root) {
           ? awardTodoCompletion(state.game, updatedTodo, updatedTodo.completedAt)
           : state.game;
       persistAppState(nextTodos, nextGame);
+    } else if (target.dataset.action === "complete-calendar-event") {
+      if (!state.storageReady) {
+        return;
+      }
+      const event = state.calendarEvents.find((item) => item.id === target.dataset.eventId);
+      if (!event) {
+        return;
+      }
+      const completedAt = target.checked ? new Date() : null;
+      const nextEvents = setCalendarCompletion(
+        state.calendarEvents,
+        event.id,
+        target.checked,
+        completedAt ?? new Date(),
+      );
+      const nextGame =
+        target.checked && !event.completed
+          ? awardCalendarCompletion(state.game, event)
+          : state.game;
+      persistAppState(state.todos, nextGame, nextEvents);
     } else if (target.dataset.action === "complete-checklist") {
       if (!state.storageReady) {
         return;
@@ -296,7 +413,68 @@ export function startTodoApp(root) {
 
   root.addEventListener("submit", (event) => {
     const form = event.target;
-    if (!(form instanceof HTMLFormElement) || form.id !== "todo-form") {
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+    if (form.id === "calendar-event-form") {
+      event.preventDefault();
+      if (!state.storageReady) {
+        return;
+      }
+      const formData = new FormData(form);
+      const editing = state.calendarEvents.find((item) => item.id === state.calendarEditingId);
+      const draft = {
+        type: String(formData.get("type") ?? ""),
+        title: String(formData.get("title") ?? ""),
+        date: String(formData.get("date") ?? ""),
+        startTime: String(formData.get("startTime") ?? ""),
+        travelMinutes: String(formData.get("travelMinutes") ?? ""),
+        preparationMinutes: String(formData.get("preparationMinutes") ?? ""),
+        arrivalLeadMinutes: String(formData.get("arrivalLeadMinutes") ?? ""),
+        location: String(formData.get("location") ?? ""),
+        dueTime: String(formData.get("dueTime") ?? ""),
+        notificationOffsets: formData.getAll("notificationOffsets").map(String),
+      };
+      try {
+        const nextEvent = createCalendarEvent(draft, {
+          id: editing?.id,
+          now: new Date(),
+        });
+        if (editing) {
+          nextEvent.createdAt = editing.createdAt;
+          nextEvent.completed = editing.completed;
+          nextEvent.completedAt = editing.completedAt;
+          nextEvent.todoIds = editing.todoIds;
+        }
+        const nextEvents = editing
+          ? state.calendarEvents.map((item) => (item.id === editing.id ? nextEvent : item))
+          : [...state.calendarEvents, nextEvent];
+        const savedState = saveAppState({
+          todos: state.todos,
+          game: state.game,
+          calendarEvents: nextEvents,
+        });
+        state.todos = savedState.todos;
+        state.game = savedState.game;
+        state.calendarEvents = savedState.calendarEvents;
+        state.backups = savedState.backups;
+        state.calendarDialogOpen = false;
+        state.calendarEditingId = null;
+        state.error = "";
+        render();
+      } catch (error) {
+        if (!(error instanceof CalendarValidationError || error instanceof TodoStorageError)) {
+          throw error;
+        }
+        state.error = error.message;
+        const formError = root.querySelector("#calendar-form-error");
+        if (formError) {
+          formError.textContent = error.message;
+        }
+      }
+      return;
+    }
+    if (form.id !== "todo-form") {
       return;
     }
     event.preventDefault();
@@ -335,9 +513,14 @@ export function startTodoApp(root) {
       const nextTodos = editing
         ? state.todos.map((todo) => (todo.id === editing.id ? nextTodo : todo))
         : [...state.todos, nextTodo];
-      const savedState = saveAppState({ todos: nextTodos, game: state.game });
+      const savedState = saveAppState({
+        todos: nextTodos,
+        game: state.game,
+        calendarEvents: state.calendarEvents,
+      });
       state.todos = savedState.todos;
       state.game = savedState.game;
+      state.calendarEvents = savedState.calendarEvents;
       state.backups = savedState.backups;
       state.dialogOpen = false;
       state.editingId = null;
@@ -359,29 +542,37 @@ export function startTodoApp(root) {
   root.addEventListener(
     "close",
     (event) => {
-      if (event.target instanceof HTMLDialogElement && event.target.id === "todo-dialog") {
+      if (!(event.target instanceof HTMLDialogElement)) {
+        return;
+      }
+      if (event.target.id === "todo-dialog") {
         state.dialogOpen = false;
         state.editingId = null;
         if (state.error) {
           render();
         }
-
-        function downloadBackup(todos, game) {
-          const contents = createBackupJson({ todos, game });
-          const blob = new Blob([contents], { type: "application/json;charset=utf-8" });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = `daily-tool-backup-${getLocalDateKey()}.json`;
-          document.body.append(link);
-          link.click();
-          link.remove();
-          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-        }
+      } else if (event.target.id === "calendar-dialog") {
+        state.calendarDialogOpen = false;
+        state.calendarEditingId = null;
+      } else if (event.target.id === "calendar-details-dialog") {
+        state.calendarDetailId = null;
       }
     },
     true,
   );
 
   render();
+}
+
+function downloadBackup(todos, game, calendarEvents) {
+  const contents = createBackupJson({ todos, game, calendarEvents });
+  const blob = new Blob([contents], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `daily-tool-backup-${getLocalDateKey()}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

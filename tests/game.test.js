@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  awardCalendarCompletion,
   awardTodoCompletion,
   claimLoginBonus,
   getLoginBonusStatus,
@@ -51,6 +52,15 @@ test("does not award the same completion event more than once", () => {
 
   assert.equal(repeated.normalPoints, 5);
   assert.equal(repeated.rewardedEventIds.length, 1);
+});
+
+test("awards calendar completion once per event", () => {
+  const game = createInitialGameState();
+  const event = { id: "event-1" };
+  const first = awardCalendarCompletion(game, event);
+
+  assert.equal(first.normalPoints, 5);
+  assert.deepEqual(awardCalendarCompletion(first, event), first);
 });
 
 test("persists Todo completion and its reward in the same application state", () => {
@@ -170,5 +180,6 @@ test("migrates existing application saves without resetting game balances", () =
     lastClaimDate: null,
     lastClaimedDay: null,
   });
-  assert.equal(saved.schemaVersion, 3);
+  assert.equal(saved.schemaVersion, 4);
+  assert.deepEqual(loaded.calendarEvents, []);
 });
