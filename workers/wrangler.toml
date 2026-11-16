@@ -1,0 +1,12 @@
+name = "hibi-tool-notification-dispatcher"
+main = "./notification-dispatcher.js"
+compatibility_date = "2026-11-16"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hibi-tool-notifications"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "../migrations"
