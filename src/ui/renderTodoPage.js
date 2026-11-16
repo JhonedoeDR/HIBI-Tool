@@ -36,7 +36,7 @@ export function renderSidebar(view = "todo") {
     navButton("▦", "カレンダー"),
     navButton("◇", "ゲーム", "game", view),
     navButton("▣", "武器・アイテム"),
-    navButton("⚙", "データ管理"),
+    navButton("⚙", "データ管理", "data", view),
   );
 
   const profile = element("div", "sidebar-profile");

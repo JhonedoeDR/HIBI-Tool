@@ -2,6 +2,8 @@ import { pruneExpiredTodos } from "./todoService.js";
 
 export const APP_STORAGE_KEY = "daily-tool.state.v1";
 export const TODO_STORAGE_KEY = "daily-tool.todos.v1";
+export const MAX_AUTOMATIC_BACKUPS = 10;
+const APP_SCHEMA_VERSION = 3;
 
 export class TodoStorageError extends Error {
   constructor(message, options) {
@@ -35,10 +37,11 @@ export function loadAppState(storage, today) {
     const parsedState = parseAppState(raw);
     const { schemaVersion, ...state } = parsedState;
     const todos = pruneExpiredTodos(state.todos, today);
-    if (schemaVersion !== 2 || todos.length !== state.todos.length) {
-      saveAppState({ ...state, todos }, storage);
+    const updatedState = { ...state, todos };
+    if (schemaVersion !== APP_SCHEMA_VERSION || todos.length !== state.todos.length) {
+      return saveAppState(updatedState, storage);
     }
-    return { ...state, todos };
+    return updatedState;
   }
 
   const legacyTodos = readStorage(storage, TODO_STORAGE_KEY);
@@ -59,32 +62,60 @@ export function loadAppState(storage, today) {
   }
 
   const state = { todos: pruneExpiredTodos(todos, today), game: createInitialGameState() };
-  saveAppState(state, storage);
-  return state;
+  return saveAppState(state, storage, { createBackup: false });
 }
 
-export function saveAppState(state, storage) {
+export function saveAppState(state, storage, { createBackup = true } = {}) {
   storage ??= getDefaultStorage();
   assertStorage(storage);
-  if (
-    !state ||
-    !Array.isArray(state.todos) ||
-    !state.todos.every(isTodoRecord) ||
-    !isGameState(state.game)
-  ) {
+  const data = normalizeAppData(state);
+  if (!data) {
     throw new TodoStorageError("保存するアプリデータの形式が正しくありません。");
   }
 
-  try {
-    storage.setItem(
-      APP_STORAGE_KEY,
-      JSON.stringify({ schemaVersion: 2, todos: state.todos, game: state.game }),
-    );
-  } catch (cause) {
-    throw new TodoStorageError("データを保存できませんでした。変更は反映されていません。", {
-      cause,
-    });
+  const previousRaw = readStorage(storage, APP_STORAGE_KEY);
+  let backups = state.backups ?? [];
+  if (previousRaw !== null) {
+    const previous = parseAppState(previousRaw);
+    backups = previous.backups;
+    if (createBackup && !sameAppData(data, previous)) {
+      backups = [
+        ...backups,
+        {
+          id: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+          data: { todos: previous.todos, game: previous.game },
+        },
+      ].slice(-MAX_AUTOMATIC_BACKUPS);
+    }
   }
+  if (
+    !Array.isArray(backups) ||
+    backups.length > MAX_AUTOMATIC_BACKUPS ||
+    !backups.every(isBackupRecord)
+  ) {
+    throw new TodoStorageError("自動バックアップの形式が正しくありません。");
+  }
+
+  const serialized = JSON.stringify({
+    schemaVersion: APP_SCHEMA_VERSION,
+    todos: data.todos,
+    game: data.game,
+    backups,
+  });
+  try {
+    storage.setItem(APP_STORAGE_KEY, serialized);
+  } catch {
+    try {
+      storage.setItem(APP_STORAGE_KEY, serialized);
+    } catch (cause) {
+      throw new TodoStorageError(
+        "データと自動バックアップを保存できませんでした。変更は反映されていません。",
+        { cause },
+      );
+    }
+  }
+  return { ...data, backups };
 }
 
 function readStorage(storage, key) {
@@ -105,11 +136,15 @@ function parseAppState(raw) {
     });
   }
   if (
-    ![1, 2].includes(parsed?.schemaVersion) ||
+    ![1, 2, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
     !Array.isArray(parsed.todos) ||
     !parsed.todos.every(isTodoRecord) ||
     parsed.game === null ||
-    typeof parsed.game !== "object"
+    typeof parsed.game !== "object" ||
+    (parsed.backups !== undefined &&
+      (!Array.isArray(parsed.backups) ||
+        parsed.backups.length > MAX_AUTOMATIC_BACKUPS ||
+        !parsed.backups.every(isBackupRecord)))
   ) {
     throw new TodoStorageError("保存データの形式が正しくありません。データは変更していません。");
   }
@@ -123,7 +158,55 @@ function parseAppState(raw) {
   if (!isGameState(game)) {
     throw new TodoStorageError("保存データの形式が正しくありません。データは変更していません。");
   }
-  return { schemaVersion: parsed.schemaVersion, todos: parsed.todos, game };
+  return {
+    schemaVersion: parsed.schemaVersion,
+    todos: parsed.todos,
+    game,
+    backups: parsed.backups ?? [],
+  };
+}
+
+export function validateAppData(data) {
+  return normalizeAppData(data);
+}
+
+function normalizeAppData(data) {
+  if (
+    !data ||
+    !Array.isArray(data.todos) ||
+    !data.todos.every(isTodoRecord) ||
+    !data.game ||
+    typeof data.game !== "object"
+  ) {
+    return null;
+  }
+  const game = {
+    ...data.game,
+    loginBonus: data.game.loginBonus ?? createInitialGameState().loginBonus,
+  };
+  game.loginBonus.lastClaimedDay ??= null;
+  if (!isGameState(game)) {
+    return null;
+  }
+  return { todos: data.todos, game };
+}
+
+function sameAppData(left, right) {
+  return JSON.stringify(left) === JSON.stringify({ todos: right.todos, game: right.game });
+}
+
+function isBackupRecord(backup) {
+  return (
+    backup !== null &&
+    typeof backup === "object" &&
+    typeof backup.id === "string" &&
+    isTimestamp(backup.createdAt) &&
+    normalizeAppData(backup.data) !== null
+  );
+}
+
+function isTimestamp(value) {
+  return typeof value === "string" && !Number.isNaN(Date.parse(value));
 }
 
 function assertStorage(storage) {

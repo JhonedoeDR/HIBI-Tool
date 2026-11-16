@@ -1,5 +1,7 @@
 import { renderTodoPage } from "../../ui/renderTodoPage.js";
 import { renderGamePage } from "../../ui/renderGamePage.js";
+import { renderDataPage } from "../../ui/renderDataPage.js";
+import { BackupFormatError, createBackupJson, parseBackupJson } from "../data/backupService.js";
 import {
   awardTodoCompletion,
   claimLoginBonus,
@@ -17,6 +19,7 @@ import {
 import {
   createInitialGameState,
   loadAppState,
+  MAX_AUTOMATIC_BACKUPS,
   saveAppState,
   TodoStorageError,
 } from "./todoRepository.js";
@@ -27,6 +30,7 @@ export function startTodoApp(root) {
   const state = {
     todos: [],
     game: createInitialGameState(),
+    backups: [],
     storageReady: true,
     view: "todo",
     category: "main",
@@ -67,6 +71,10 @@ export function startTodoApp(root) {
       }, getMillisecondsUntilJstCutover() + 50);
       return;
     }
+    if (state.view === "data") {
+      root.replaceChildren(renderDataPage({ ...state, maxBackups: MAX_AUTOMATIC_BACKUPS }));
+      return;
+    }
     const today = getLocalDateKey();
     root.replaceChildren(
       renderTodoPage({
@@ -94,9 +102,10 @@ export function startTodoApp(root) {
 
   function persistAppState(nextTodos, nextGame) {
     try {
-      saveAppState({ todos: nextTodos, game: nextGame });
-      state.todos = nextTodos;
-      state.game = nextGame;
+      const savedState = saveAppState({ todos: nextTodos, game: nextGame });
+      state.todos = savedState.todos;
+      state.game = savedState.game;
+      state.backups = savedState.backups;
       state.error = "";
       render();
     } catch (error) {
@@ -118,13 +127,30 @@ export function startTodoApp(root) {
     }
 
     const { action, todoId, category, view } = button.dataset;
-    if (action === "change-view" && (view === "todo" || view === "game")) {
+    if (action === "change-view" && ["todo", "game", "data"].includes(view)) {
       state.view = view;
       render();
     } else if (action === "claim-login-bonus" && state.storageReady) {
       const nextGame = claimLoginBonus(state.game);
       if (nextGame !== state.game) {
         persistAppState(state.todos, nextGame);
+      }
+    } else if (action === "export-backup" && state.storageReady) {
+      try {
+        downloadBackup(state.todos, state.game);
+        state.error = "";
+        render();
+      } catch (error) {
+        state.error = `JSONを書き出せませんでした: ${error.message}`;
+        render();
+      }
+    } else if (action === "restore-backup" && state.storageReady) {
+      const backup = state.backups.find((item) => item.id === button.dataset.backupId);
+      if (
+        backup &&
+        window.confirm("現在のTodoとゲームデータを選択したバックアップで全置換しますか？")
+      ) {
+        persistAppState(backup.data.todos, backup.data.game);
       }
     } else if (action === "change-category" && CATEGORIES.includes(category)) {
       state.category = category;
@@ -173,9 +199,38 @@ export function startTodoApp(root) {
     }
   });
 
-  root.addEventListener("change", (event) => {
+  root.addEventListener("change", async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    if (target.dataset.action === "import-backup") {
+      const [file] = target.files ?? [];
+      target.value = "";
+      if (!file || !state.storageReady) {
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        state.error = "JSONバックアップは5MB以下のファイルを選択してください。";
+        render();
+        return;
+      }
+      try {
+        const data = parseBackupJson(await file.text());
+        if (
+          window.confirm("現在のTodoとゲームデータを選択したJSONで全置換しますか？")
+        ) {
+          persistAppState(data.todos, data.game);
+        }
+      } catch (error) {
+        if (!(error instanceof BackupFormatError)) {
+          state.error = `JSONファイルを読み込めませんでした: ${error.message}`;
+        } else {
+          state.error = error.message;
+        }
+        render();
+      }
       return;
     }
 
@@ -280,8 +335,10 @@ export function startTodoApp(root) {
       const nextTodos = editing
         ? state.todos.map((todo) => (todo.id === editing.id ? nextTodo : todo))
         : [...state.todos, nextTodo];
-      saveAppState({ todos: nextTodos, game: state.game });
-      state.todos = nextTodos;
+      const savedState = saveAppState({ todos: nextTodos, game: state.game });
+      state.todos = savedState.todos;
+      state.game = savedState.game;
+      state.backups = savedState.backups;
       state.dialogOpen = false;
       state.editingId = null;
       state.error = "";
@@ -307,6 +364,19 @@ export function startTodoApp(root) {
         state.editingId = null;
         if (state.error) {
           render();
+        }
+
+        function downloadBackup(todos, game) {
+          const contents = createBackupJson({ todos, game });
+          const blob = new Blob([contents], { type: "application/json;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `daily-tool-backup-${getLocalDateKey()}.json`;
+          document.body.append(link);
+          link.click();
+          link.remove();
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
         }
       }
     },
