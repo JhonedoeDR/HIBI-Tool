@@ -837,6 +837,12 @@ function actionButton(text, className, action) {
   return button;
 }
 
+function submitButton(text) {
+  const button = element("button", "primary-button", text);
+  button.type = "submit";
+  return button;
+}
+
 function element(tagName, className, text, attributes = {}) {
   const node = document.createElement(tagName);
   if (className) {
