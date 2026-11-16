@@ -5,6 +5,11 @@ import {
   getTodoReminderSchedule,
   getUpcomingReminderSchedule,
 } from "../src/features/notifications/notificationService.js";
+import { createNotificationSyncPayload } from "../src/features/notifications/notificationSyncService.js";
+import {
+  NotificationSyncValidationError,
+  validateNotificationSyncPayload,
+} from "../src/features/notifications/notificationSyncService.js";
 
 test("Todo notifications are scheduled at 8 a.m. on the start and deadline days", () => {
   const reminders = getTodoReminderSchedule(
@@ -154,4 +159,139 @@ test("combined reminder schedules are sorted and exclude past or completed event
 
   assert.equal(upcoming.length, 1);
   assert.equal(upcoming[0].sourceId, "todo-1");
+});
+
+test("notification sync payload is a stable full snapshot with ISO timestamps", () => {
+  const generatedAt = new Date(2026, 10, 16, 8);
+  const todos = [
+    {
+      id: "todo-1",
+      title: "Submit report",
+      startDate: "2026-11-18",
+      dueDate: null,
+      completed: false,
+    },
+  ];
+  const events = [
+    {
+      id: "deadline-1",
+      type: "deadline",
+      title: "Application",
+      date: "2026-11-20",
+      dueTime: "17:00",
+      notificationOffsets: ["1h"],
+      completed: false,
+    },
+  ];
+  const payload = createNotificationSyncPayload(todos, events, generatedAt);
+  const regeneratedPayload = createNotificationSyncPayload(
+    todos,
+    events,
+    new Date(generatedAt.getTime() + 60_000),
+  );
+
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.generatedAt, generatedAt.toISOString());
+  assert.deepEqual(
+    payload.notifications.map((notification) => ({
+      id: notification.id,
+      scheduledAt: notification.scheduledAt,
+      title: notification.title,
+      body: notification.body,
+      sourceType: notification.sourceType,
+      sourceId: notification.sourceId,
+    })),
+    [
+      {
+        id: `todo:todo-1:${new Date(2026, 10, 18, 8).getTime()}`,
+        scheduledAt: new Date(2026, 10, 18, 8).toISOString(),
+        title: "Submit report",
+        body: "開始日",
+        sourceType: "todo",
+        sourceId: "todo-1",
+      },
+      {
+        id: `calendar:deadline-1:${new Date(2026, 10, 20, 16).getTime()}`,
+        scheduledAt: new Date(2026, 10, 20, 16).toISOString(),
+        title: "Application",
+        body: "1時間前",
+        sourceType: "calendar",
+        sourceId: "deadline-1",
+      },
+    ],
+  );
+  assert.notEqual(regeneratedPayload.generatedAt, payload.generatedAt);
+  assert.deepEqual(
+    regeneratedPayload.notifications.map((notification) => notification.id),
+    payload.notifications.map((notification) => notification.id),
+  );
+});
+
+test("notification sync payload rejects an invalid generation time", () => {
+  assert.throws(
+    () => createNotificationSyncPayload([], [], new Date(Number.NaN)),
+    TypeError,
+  );
+});
+
+test("notification sync payload validation returns only supported fields", () => {
+  const payload = {
+    schemaVersion: 1,
+    generatedAt: "2026-11-16T08:00:00.000Z",
+    notifications: [
+      {
+        id: "todo:todo-1:1794816000000",
+        scheduledAt: "2026-11-16T09:00:00.000Z",
+        title: "Task",
+        body: "開始日",
+        sourceType: "todo",
+        sourceId: "todo-1",
+        unexpected: "discarded",
+      },
+    ],
+  };
+
+  assert.deepEqual(validateNotificationSyncPayload(payload), {
+    schemaVersion: 1,
+    generatedAt: payload.generatedAt,
+    notifications: [
+      {
+        id: payload.notifications[0].id,
+        scheduledAt: payload.notifications[0].scheduledAt,
+        title: "Task",
+        body: "開始日",
+        sourceType: "todo",
+        sourceId: "todo-1",
+      },
+    ],
+  });
+});
+
+test("notification sync payload validation rejects duplicate IDs and invalid timestamps", () => {
+  const validNotification = {
+    id: "todo:todo-1:1794816000000",
+    scheduledAt: "2026-11-16T09:00:00.000Z",
+    title: "Task",
+    body: "開始日",
+    sourceType: "todo",
+    sourceId: "todo-1",
+  };
+  const payload = {
+    schemaVersion: 1,
+    generatedAt: "2026-11-16T08:00:00.000Z",
+    notifications: [validNotification, { ...validNotification }],
+  };
+
+  assert.throws(
+    () => validateNotificationSyncPayload(payload),
+    NotificationSyncValidationError,
+  );
+  assert.throws(
+    () =>
+      validateNotificationSyncPayload({
+        ...payload,
+        notifications: [{ ...validNotification, scheduledAt: "2026-02-30T09:00:00.000Z" }],
+      }),
+    NotificationSyncValidationError,
+  );
 });
