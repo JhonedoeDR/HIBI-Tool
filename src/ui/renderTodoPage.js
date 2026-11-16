@@ -1,5 +1,6 @@
 import {
   getCategoryLabel,
+  getTodoDescendantIds,
   getLocalDateKey,
 } from "../features/todo/todoService.js";
 
@@ -231,8 +232,13 @@ function renderTodo(todo, state) {
     element("span", "todo-category", getCategoryLabel(todo.category)),
   );
   copy.append(titleRow, renderTodoMeta(todo, notStarted));
+  const parent = state.todos.find((item) => item.id === todo.parentId);
+  const children = state.todos.filter((item) => item.parentId === todo.id);
+  if (parent || children.length) {
+    copy.append(renderTodoRelations(parent, children));
+  }
   if (todo.checklist.length) {
-    copy.append(renderChecklist(todo));
+    copy.append(renderChecklist(todo, state));
   }
   if (todo.links.length) {
     copy.append(renderLinks(todo));
@@ -269,7 +275,20 @@ function renderTodoMeta(todo, notStarted) {
   return meta;
 }
 
-function renderChecklist(todo) {
+function renderTodoRelations(parent, children) {
+  const relations = element("div", "todo-relations");
+  if (parent) {
+    relations.append(element("span", "", `親Todo: ${parent.title}`));
+  }
+  if (children.length) {
+    relations.append(
+      element("span", "", `子Todo: ${children.map((child) => child.title).join("、")}`),
+    );
+  }
+  return relations;
+}
+
+function renderChecklist(todo, state) {
   const list = element("ul", "checklist");
   for (const entry of todo.checklist) {
     const row = element("li", "checklist-row");
@@ -335,7 +354,8 @@ function renderTodoDialog(state) {
   );
 
   const details = element("details", "advanced-fields");
-  details.append(element("summary", "", "詳細設定（チェックリスト・リンク）"));
+  details.append(element("summary", "", "詳細設定（親Todo・チェックリスト・リンク）"));
+  details.append(parentTodoField(todo, state.todos));
   const checklist = element("textarea", "");
   checklist.name = "checklist";
   checklist.rows = 3;
@@ -365,6 +385,33 @@ function renderTodoDialog(state) {
   form.append(header, fields, dateFields, details, error, footer);
   dialog.append(form);
   return dialog;
+}
+
+function parentTodoField(todo, todos) {
+  const select = element("select", "");
+  select.name = "parentId";
+  const noParent = element("option", "", "なし（親Todo）");
+  noParent.value = "";
+  select.append(noParent);
+
+  const excludedIds = new Set(
+    todo ? [todo.id, ...getTodoDescendantIds(todos, todo.id)] : [],
+  );
+  const availableTodos = [...todos]
+    .filter((item) => !excludedIds.has(item.id))
+    .sort((left, right) => left.title.localeCompare(right.title, "ja"));
+  for (const candidate of availableTodos) {
+    const parent = todos.find((item) => item.id === candidate.parentId);
+    const option = element(
+      "option",
+      "",
+      parent ? `${parent.title} › ${candidate.title}` : candidate.title,
+    );
+    option.value = candidate.id;
+    select.append(option);
+  }
+  select.value = todo?.parentId ?? "";
+  return field("親Todo（任意）", select, "選択したTodoの子タスクとして紐付けます。");
 }
 
 function field(labelText, input, hint = "") {

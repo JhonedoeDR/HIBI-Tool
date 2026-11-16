@@ -22,12 +22,16 @@ export function createCalendarEvent(input, { id = crypto.randomUUID(), now = new
   }
 
   const timestamp = now.toISOString();
+  const todoIds = input.todoIds ?? [];
+  if (!Array.isArray(todoIds) || !todoIds.every((todoId) => typeof todoId === "string")) {
+    throw new CalendarValidationError("紐付けるTodoを確認してください。");
+  }
   const common = {
     id,
     type,
     title,
     date,
-    todoIds: [],
+    todoIds: [...new Set(todoIds)],
     completed: false,
     completedAt: null,
     createdAt: timestamp,

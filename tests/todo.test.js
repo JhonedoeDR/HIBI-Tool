@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTodo, getVisibleTodos, pruneExpiredTodos, setTodoCompletion } from "../src/features/todo/todoService.js";
+import {
+  createTodo,
+  expandTodoSelection,
+  getTodoDescendantIds,
+  getVisibleTodos,
+  pruneExpiredTodos,
+  removeTodos,
+  setTodoCompletion,
+} from "../src/features/todo/todoService.js";
+import { createCalendarEvent } from "../src/features/calendar/calendarService.js";
 import {
   APP_STORAGE_KEY,
   createInitialGameState,
@@ -17,6 +26,7 @@ function todo(id, values = {}) {
     category: "main",
     startDate: null,
     dueDate: null,
+    parentId: null,
     checklist: [],
     links: [],
     completed: false,
@@ -56,8 +66,63 @@ test("creates a Todo with normalized optional dates and checklist", () => {
   assert.equal(created.title, "Read");
   assert.equal(created.startDate, null);
   assert.equal(created.dueDate, "2025-05-04");
+  assert.equal(created.parentId, null);
   assert.equal(created.checklist.length, 1);
   assert.equal(created.checklist[0].completed, false);
+});
+
+test("supports a parent Todo and expands selected parents to their descendants", () => {
+  const todos = [
+    todo("parent"),
+    todo("child", { parentId: "parent" }),
+    todo("grandchild", { parentId: "child" }),
+    todo("unrelated"),
+  ];
+
+  assert.deepEqual(getTodoDescendantIds(todos, "parent"), ["child", "grandchild"]);
+  assert.deepEqual(expandTodoSelection(todos, ["parent"]), [
+    "parent",
+    "child",
+    "grandchild",
+  ]);
+  assert.deepEqual(expandTodoSelection(todos, ["child"]), ["child", "grandchild"]);
+
+  const child = createTodo(
+    {
+      title: "Child",
+      category: "main",
+      startDate: "",
+      dueDate: "",
+      parentId: "parent",
+    },
+    { id: "child" },
+  );
+  assert.equal(child.parentId, "parent");
+});
+
+test("rejects invalid or self-referential parent Todo IDs", () => {
+  const base = {
+    title: "Task",
+    category: "main",
+    startDate: "",
+    dueDate: "",
+  };
+  assert.throws(
+    () => createTodo({ ...base, parentId: 7 }, { id: "task" }),
+    /親Todoの指定が正しくありません/,
+  );
+  assert.throws(
+    () => createTodo({ ...base, parentId: "task" }, { id: "task" }),
+    /親Todoの指定が正しくありません/,
+  );
+});
+
+test("deleting a parent detaches surviving child Todos", () => {
+  const todos = [todo("parent"), todo("child", { parentId: "parent" })];
+  const remaining = removeTodos(todos, ["parent"]);
+
+  assert.deepEqual(remaining.map((item) => item.id), ["child"]);
+  assert.equal(remaining[0].parentId, null);
 });
 
 test("rejects invalid dates, reversed date ranges, and unsafe links", () => {
@@ -138,4 +203,66 @@ test("repository migrates legacy Todo data without deleting its original copy", 
   assert.equal(state.game.normalPoints, 0);
   assert.equal(storage.values.get(TODO_STORAGE_KEY), JSON.stringify(legacyTodos));
   assert.deepEqual(JSON.parse(storage.values.get(APP_STORAGE_KEY)).todos, legacyTodos);
+});
+
+test("schema migration adds parent links and calendar events inherit child Todo links", () => {
+  const storage = memoryStorage();
+  const legacyTodo = todo("legacy");
+  delete legacyTodo.parentId;
+  storage.setItem(
+    APP_STORAGE_KEY,
+    JSON.stringify({
+      schemaVersion: 4,
+      todos: [legacyTodo],
+      game: createInitialGameState(),
+      calendarEvents: [],
+    }),
+  );
+  const migrated = loadAppState(storage, "2025-05-01");
+  assert.equal(migrated.todos[0].parentId, null);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 5);
+
+  const event = createCalendarEvent(
+    {
+      type: "deadline",
+      title: "Submit",
+      date: "2025-05-04",
+      dueTime: "17:00",
+      notificationOffsets: [],
+      todoIds: ["parent"],
+    },
+    { id: "event-1", now: new Date("2025-05-01T00:00:00.000Z") },
+  );
+  const saved = saveAppState(
+    {
+      todos: [todo("parent"), todo("child", { parentId: "parent" })],
+      game: createInitialGameState(),
+      calendarEvents: [event],
+    },
+    storage,
+  );
+  assert.deepEqual(saved.calendarEvents[0].todoIds, ["parent", "child"]);
+});
+
+test("repository rejects missing parents and cyclic Todo relationships", () => {
+  const storage = memoryStorage();
+  const base = { game: createInitialGameState() };
+  assert.throws(
+    () => saveAppState({ ...base, todos: [todo("child", { parentId: "missing" })] }, storage),
+    TodoStorageError,
+  );
+  assert.throws(
+    () =>
+      saveAppState(
+        {
+          ...base,
+          todos: [
+            todo("first", { parentId: "second" }),
+            todo("second", { parentId: "first" }),
+          ],
+        },
+        storage,
+      ),
+    TodoStorageError,
+  );
 });

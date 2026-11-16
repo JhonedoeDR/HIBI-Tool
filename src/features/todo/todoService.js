@@ -22,9 +22,16 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
   const category = input.category;
   const startDate = normalizeDate(input.startDate, "開始日");
   const dueDate = normalizeDate(input.dueDate, "期限");
+  const parentId =
+    input.parentId === "" || input.parentId === undefined || input.parentId === null
+      ? null
+      : input.parentId;
 
   if (!title) {
     throw new TodoValidationError("タスク名を入力してください。");
+  }
+  if (parentId !== null && (typeof parentId !== "string" || parentId === id)) {
+    throw new TodoValidationError("親Todoの指定が正しくありません。");
   }
   if (!TODO_CATEGORIES.includes(category)) {
     throw new TodoValidationError("分類を選択してください。");
@@ -46,6 +53,7 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
     category,
     startDate,
     dueDate,
+    parentId,
     checklist,
     links,
     completed: false,
@@ -53,6 +61,47 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
     createdAt: timestamp,
     updatedAt: timestamp,
   };
+}
+
+export function getTodoDescendantIds(todos, parentId) {
+  if (typeof parentId !== "string" || !parentId) {
+    return [];
+  }
+  const visited = new Set([parentId]);
+  const descendants = [];
+  const queue = [parentId];
+
+  while (queue.length) {
+    const currentId = queue.shift();
+    for (const todo of todos) {
+      if (todo.parentId === currentId && !visited.has(todo.id)) {
+        visited.add(todo.id);
+        descendants.push(todo.id);
+        queue.push(todo.id);
+      }
+    }
+  }
+
+  return descendants;
+}
+
+export function expandTodoSelection(todos, todoIds) {
+  const selectedIds = new Set(todoIds.filter((id) => todos.some((todo) => todo.id === id)));
+  for (const id of [...selectedIds]) {
+    for (const descendantId of getTodoDescendantIds(todos, id)) {
+      selectedIds.add(descendantId);
+    }
+  }
+  return todos.filter((todo) => selectedIds.has(todo.id)).map((todo) => todo.id);
+}
+
+export function removeTodos(todos, todoIds) {
+  const deletedIds = new Set(todoIds);
+  return todos
+    .filter((todo) => !deletedIds.has(todo.id))
+    .map((todo) =>
+      deletedIds.has(todo.parentId) ? { ...todo, parentId: null } : todo,
+    );
 }
 
 export function setTodoCompletion(todos, id, completed, now = new Date()) {

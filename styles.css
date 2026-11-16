@@ -1366,6 +1366,46 @@ textarea:focus-visible {
   margin-bottom: 16px;
 }
 
+.todo-relations {
+  display: grid;
+  gap: 3px;
+  margin-top: 7px;
+  color: #777f91;
+  font-size: 0.72rem;
+}
+
+.calendar-dialog .calendar-todo-links {
+  display: grid;
+  max-height: 190px;
+  gap: 8px;
+  overflow: auto;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.calendar-todo-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #596274;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.calendar-todo-link input {
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: var(--purple);
+}
+
+.calendar-empty-links {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 @media (max-width: 700px) {
   .calendar-grid {
     grid-template-columns: repeat(7, minmax(92px, 1fr));

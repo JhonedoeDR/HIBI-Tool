@@ -29,6 +29,7 @@ function todo(id) {
     category: "main",
     startDate: null,
     dueDate: null,
+    parentId: null,
     checklist: [],
     links: [],
     completed: false,

@@ -3,7 +3,7 @@ import { pruneExpiredTodos } from "./todoService.js";
 export const APP_STORAGE_KEY = "daily-tool.state.v1";
 export const TODO_STORAGE_KEY = "daily-tool.todos.v1";
 export const MAX_AUTOMATIC_BACKUPS = 10;
-const APP_SCHEMA_VERSION = 4;
+const APP_SCHEMA_VERSION = 5;
 
 export class TodoStorageError extends Error {
   constructor(message, options) {
@@ -145,7 +145,7 @@ function parseAppState(raw) {
     });
   }
   if (
-    ![1, 2, 3, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
+    ![1, 2, 3, 4, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
     !Array.isArray(parsed.todos) ||
     !parsed.todos.every(isTodoRecord) ||
     (parsed.calendarEvents !== undefined &&
@@ -170,11 +170,17 @@ function parseAppState(raw) {
   if (!isGameState(game)) {
     throw new TodoStorageError("保存データの形式が正しくありません。データは変更していません。");
   }
-  return {
-    schemaVersion: parsed.schemaVersion,
+  const data = normalizeAppData({
     todos: parsed.todos,
     game,
     calendarEvents: parsed.calendarEvents ?? [],
+  });
+  if (!data) {
+    throw new TodoStorageError("保存データの形式が正しくありません。データは変更していません。");
+  }
+  return {
+    schemaVersion: parsed.schemaVersion,
+    ...data,
     backups: parsed.backups ?? [],
   };
 }
@@ -196,6 +202,18 @@ function normalizeAppData(data) {
   ) {
     return null;
   }
+  const todos = data.todos.map((todo) => ({
+    ...todo,
+    parentId: todo.parentId || null,
+  }));
+  if (!isValidTodoHierarchy(todos)) {
+    return null;
+  }
+  const todoIds = new Set(todos.map((todo) => todo.id));
+  const calendarEvents = data.calendarEvents ?? [];
+  if (calendarEvents.some((event) => event.todoIds.some((id) => !todoIds.has(id)))) {
+    return null;
+  }
   const game = {
     ...data.game,
     loginBonus: data.game.loginBonus ?? createInitialGameState().loginBonus,
@@ -204,7 +222,52 @@ function normalizeAppData(data) {
   if (!isGameState(game)) {
     return null;
   }
-  return { todos: data.todos, game, calendarEvents: data.calendarEvents ?? [] };
+  return {
+    todos,
+    game,
+    calendarEvents: calendarEvents.map((event) => ({
+      ...event,
+      todoIds: expandLinkedTodoIds(todos, event.todoIds),
+    })),
+  };
+}
+
+function isValidTodoHierarchy(todos) {
+  const todosById = new Map(todos.map((todo) => [todo.id, todo]));
+  if (todosById.size !== todos.length) {
+    return false;
+  }
+
+  for (const todo of todos) {
+    const visited = new Set([todo.id]);
+    let parentId = todo.parentId;
+    while (parentId) {
+      if (visited.has(parentId)) {
+        return false;
+      }
+      visited.add(parentId);
+      const parent = todosById.get(parentId);
+      if (!parent) {
+        return false;
+      }
+      parentId = parent.parentId;
+    }
+  }
+  return true;
+}
+
+function expandLinkedTodoIds(todos, linkedIds) {
+  const selectedIds = new Set(linkedIds);
+  const queue = [...selectedIds];
+  for (let index = 0; index < queue.length; index += 1) {
+    for (const todo of todos) {
+      if (todo.parentId === queue[index] && !selectedIds.has(todo.id)) {
+        selectedIds.add(todo.id);
+        queue.push(todo.id);
+      }
+    }
+  }
+  return todos.filter((todo) => selectedIds.has(todo.id)).map((todo) => todo.id);
 }
 
 function sameAppData(left, right) {
@@ -326,6 +389,7 @@ function isTodoRecord(todo) {
     typeof todo === "object" &&
     typeof todo.id === "string" &&
     typeof todo.title === "string" &&
+    (todo.parentId === undefined || todo.parentId === null || typeof todo.parentId === "string") &&
     ["main", "routine", "other"].includes(todo.category) &&
     (todo.startDate === null || isDateKey(todo.startDate)) &&
     (todo.dueDate === null || isDateKey(todo.dueDate)) &&

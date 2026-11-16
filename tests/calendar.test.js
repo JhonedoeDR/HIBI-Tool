@@ -41,6 +41,22 @@ test("creates appointment and deadline records with normalized values", () => {
   assert.equal(deadline.completedAt, null);
 });
 
+test("deduplicates calendar Todo links and rejects malformed link lists", () => {
+  const draft = {
+    type: "deadline",
+    title: "Submit",
+    date: "2026-11-18",
+    dueTime: "17:00",
+    notificationOffsets: [],
+    todoIds: ["todo-1", "todo-1", "todo-2"],
+  };
+  assert.deepEqual(createCalendarEvent(draft).todoIds, ["todo-1", "todo-2"]);
+  assert.throws(
+    () => createCalendarEvent({ ...draft, todoIds: ["todo-1", 2] }),
+    CalendarValidationError,
+  );
+});
+
 test("rejects malformed calendar dates, times, durations, and reminders", () => {
   const validAppointment = {
     type: "appointment",

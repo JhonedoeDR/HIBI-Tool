@@ -1,4 +1,5 @@
 import { getCalendarDays, formatEventTime } from "../features/calendar/calendarService.js";
+import { expandTodoSelection } from "../features/todo/todoService.js";
 import { renderSidebar } from "./renderTodoPage.js";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -129,6 +130,7 @@ function renderCalendarDialog(state) {
     field("名前", textInput("title", event?.title ?? "", true, "calendar-event-title")),
     field("日付", dateInput("date", event?.date ?? state.calendarDefaultDate)),
   );
+  const todoLinks = renderTodoLinks(state.todos, event?.todoIds ?? []);
 
   const appointmentFields = document.createElement("fieldset");
   appointmentFields.className = "form-fields calendar-type-fields";
@@ -189,9 +191,41 @@ function renderCalendarDialog(state) {
     actionButton("キャンセル", "secondary-button", "close-calendar-dialog"),
     submitButton(event ? "変更を保存" : "登録する"),
   );
-  form.append(header, fields, appointmentFields, deadlineFields, error, footer);
+  form.append(header, fields, todoLinks, appointmentFields, deadlineFields, error, footer);
   dialog.append(form);
   return dialog;
+}
+
+function renderTodoLinks(todos, selectedTodoIds) {
+  const fieldset = document.createElement("fieldset");
+  fieldset.className = "calendar-todo-links";
+  fieldset.append(make("legend", "field-label", "関連Todo（複数選択可）"));
+
+  if (!todos.length) {
+    fieldset.append(make("p", "calendar-empty-links", "紐付けできるTodoはありません。"));
+    return fieldset;
+  }
+
+  const selectedIds = new Set(expandTodoSelection(todos, selectedTodoIds));
+  const sortedTodos = [...todos].sort((left, right) => left.title.localeCompare(right.title, "ja"));
+  for (const todo of sortedTodos) {
+    const option = document.createElement("label");
+    option.className = "calendar-todo-link";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.name = "todoIds";
+    checkbox.value = todo.id;
+    checkbox.checked = selectedIds.has(todo.id);
+    checkbox.dataset.action = "calendar-todo-link";
+    checkbox.dataset.todoId = todo.id;
+    const parent = todos.find((item) => item.id === todo.parentId);
+    option.append(
+      checkbox,
+      document.createTextNode(parent ? `${parent.title} › ${todo.title}` : todo.title),
+    );
+    fieldset.append(option);
+  }
+  return fieldset;
 }
 
 function renderEventDetailsDialog(state) {
@@ -235,6 +269,12 @@ function renderEventDetailsDialog(state) {
       (offset) => DEADLINE_OFFSETS.find(([value]) => value === offset)?.[1] ?? offset,
     );
     info.append(detailRow("通知設定", reminderLabels.join("、") || "なし"));
+  }
+  const linkedTodoTitles = event.todoIds
+    .map((id) => state.todos.find((todo) => todo.id === id)?.title)
+    .filter(Boolean);
+  if (linkedTodoTitles.length) {
+    info.append(detailRow("関連Todo", linkedTodoTitles.join("、")));
   }
 
   const completionLabel = document.createElement("label");

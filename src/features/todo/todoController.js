@@ -20,8 +20,11 @@ import {
 } from "../calendar/calendarService.js";
 import {
   createTodo,
+  expandTodoSelection,
+  getTodoDescendantIds,
   getLocalDateKey,
   getVisibleTodos,
+  removeTodos,
   setChecklistCompletion,
   setTodoCompletion,
   TodoValidationError,
@@ -260,7 +263,7 @@ export function startTodoApp(root) {
       state.storageReady &&
       window.confirm("このTodoを削除しますか？")
     ) {
-      persist(state.todos.filter((todo) => todo.id !== todoId));
+      persistTodoDeletion(new Set([todoId]));
       if (!state.error) {
         state.selectedIds.delete(todoId);
         render();
@@ -270,8 +273,7 @@ export function startTodoApp(root) {
         return;
       }
       if (window.confirm(`選択した${state.selectedIds.size}件のTodoを削除しますか？`)) {
-        const nextTodos = state.todos.filter((todo) => !state.selectedIds.has(todo.id));
-        persist(nextTodos);
+        persistTodoDeletion(state.selectedIds);
         if (!state.error) {
           state.selectedIds.clear();
           render();
@@ -281,6 +283,15 @@ export function startTodoApp(root) {
       root.querySelector("#todo-dialog")?.close();
     }
   });
+
+  function persistTodoDeletion(deletedIds) {
+    const nextTodos = removeTodos(state.todos, deletedIds);
+    const nextEvents = state.calendarEvents.map((calendarEvent) => ({
+      ...calendarEvent,
+      todoIds: calendarEvent.todoIds.filter((id) => !deletedIds.has(id)),
+    }));
+    persistAppState(nextTodos, state.game, nextEvents);
+  }
 
   root.addEventListener("change", async (event) => {
     const target = event.target;
@@ -327,6 +338,23 @@ export function startTodoApp(root) {
         appointmentFields.disabled = target.value !== "appointment";
         deadlineFields.hidden = target.value !== "deadline";
         deadlineFields.disabled = target.value !== "deadline";
+      }
+      return;
+    }
+
+    if (target.dataset.action === "calendar-todo-link") {
+      const form = root.querySelector("#calendar-event-form");
+      if (!form) {
+        return;
+      }
+      const descendantIds = getTodoDescendantIds(state.todos, target.dataset.todoId);
+      for (const id of descendantIds) {
+        const descendant = [...form.querySelectorAll('[data-action="calendar-todo-link"]')].find(
+          (checkbox) => checkbox.dataset.todoId === id,
+        );
+        if (descendant) {
+          descendant.checked = target.checked;
+        }
       }
       return;
     }
@@ -434,6 +462,7 @@ export function startTodoApp(root) {
         location: String(formData.get("location") ?? ""),
         dueTime: String(formData.get("dueTime") ?? ""),
         notificationOffsets: formData.getAll("notificationOffsets").map(String),
+        todoIds: expandTodoSelection(state.todos, formData.getAll("todoIds").map(String)),
       };
       try {
         const nextEvent = createCalendarEvent(draft, {
@@ -444,7 +473,6 @@ export function startTodoApp(root) {
           nextEvent.createdAt = editing.createdAt;
           nextEvent.completed = editing.completed;
           nextEvent.completedAt = editing.completedAt;
-          nextEvent.todoIds = editing.todoIds;
         }
         const nextEvents = editing
           ? state.calendarEvents.map((item) => (item.id === editing.id ? nextEvent : item))
@@ -491,6 +519,7 @@ export function startTodoApp(root) {
       dueDate: String(formData.get("dueDate") ?? ""),
       checklist: checklistText.split("\n"),
       links: linksText.split("\n").filter((line) => line.trim()),
+      parentId: String(formData.get("parentId") ?? ""),
     };
 
     try {
