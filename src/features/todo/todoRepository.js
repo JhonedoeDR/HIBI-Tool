@@ -18,6 +18,11 @@ export function createInitialGameState() {
     rewardedEventIds: [],
     area: 1,
     position: 0,
+    loginBonus: {
+      nextDay: 1,
+      lastClaimDate: null,
+      lastClaimedDay: null,
+    },
   };
 }
 
@@ -27,9 +32,10 @@ export function loadAppState(storage, today) {
 
   const raw = readStorage(storage, APP_STORAGE_KEY);
   if (raw !== null) {
-    const state = parseAppState(raw);
+    const parsedState = parseAppState(raw);
+    const { schemaVersion, ...state } = parsedState;
     const todos = pruneExpiredTodos(state.todos, today);
-    if (todos.length !== state.todos.length) {
+    if (schemaVersion !== 2 || todos.length !== state.todos.length) {
       saveAppState({ ...state, todos }, storage);
     }
     return { ...state, todos };
@@ -72,7 +78,7 @@ export function saveAppState(state, storage) {
   try {
     storage.setItem(
       APP_STORAGE_KEY,
-      JSON.stringify({ schemaVersion: 1, todos: state.todos, game: state.game }),
+      JSON.stringify({ schemaVersion: 2, todos: state.todos, game: state.game }),
     );
   } catch (cause) {
     throw new TodoStorageError("データを保存できませんでした。変更は反映されていません。", {
@@ -99,14 +105,25 @@ function parseAppState(raw) {
     });
   }
   if (
-    parsed?.schemaVersion !== 1 ||
+    ![1, 2].includes(parsed?.schemaVersion) ||
     !Array.isArray(parsed.todos) ||
     !parsed.todos.every(isTodoRecord) ||
-    !isGameState(parsed.game)
+    parsed.game === null ||
+    typeof parsed.game !== "object"
   ) {
     throw new TodoStorageError("保存データの形式が正しくありません。データは変更していません。");
   }
-  return { todos: parsed.todos, game: parsed.game };
+  const game = {
+    ...parsed.game,
+    loginBonus:
+      parsed.game.loginBonus ??
+      createInitialGameState().loginBonus,
+  };
+  game.loginBonus.lastClaimedDay ??= null;
+  if (!isGameState(game)) {
+    throw new TodoStorageError("保存データの形式が正しくありません。データは変更していません。");
+  }
+  return { schemaVersion: parsed.schemaVersion, todos: parsed.todos, game };
 }
 
 function assertStorage(storage) {
@@ -138,7 +155,23 @@ function isGameState(game) {
     Number.isSafeInteger(game.area) &&
     game.area >= 1 &&
     Number.isSafeInteger(game.position) &&
-    game.position >= 0
+    game.position >= 0 &&
+    isLoginBonusState(game.loginBonus)
+  );
+}
+
+function isLoginBonusState(loginBonus) {
+  return (
+    loginBonus !== null &&
+    typeof loginBonus === "object" &&
+    Number.isSafeInteger(loginBonus.nextDay) &&
+    loginBonus.nextDay >= 1 &&
+    loginBonus.nextDay <= 7 &&
+    (loginBonus.lastClaimDate === null || isDateKey(loginBonus.lastClaimDate)) &&
+    (loginBonus.lastClaimedDay === null ||
+      (Number.isSafeInteger(loginBonus.lastClaimedDay) &&
+        loginBonus.lastClaimedDay >= 1 &&
+        loginBonus.lastClaimedDay <= 7))
   );
 }
 

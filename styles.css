@@ -1048,3 +1048,47 @@ textarea:focus-visible {
     padding: 14px;
   }
 }
+
+.login-bonus-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 20px;
+  margin-bottom: 22px;
+  padding: 19px 22px;
+  border: 1px solid #e8e2c8;
+  border-radius: 12px;
+  background: linear-gradient(110deg, #fffdf4, #fff);
+}
+
+.login-bonus-card .eyebrow {
+  margin-bottom: 5px;
+  color: #a17a27;
+}
+
+.login-bonus-card h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.login-bonus-reward {
+  margin: 5px 0 0;
+  color: #80621f;
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.login-bonus-card .game-note {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 620px) {
+  .login-bonus-card {
+    grid-template-columns: 1fr;
+    padding: 17px;
+  }
+
+  .login-bonus-card .primary-button {
+    width: 100%;
+  }
+}

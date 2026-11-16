@@ -38,6 +38,13 @@ export function renderGamePage(state) {
     return shell;
   }
 
+  const error = state.error ? document.createElement("p") : null;
+  if (error) {
+    error.className = "error-banner";
+    error.setAttribute("role", "alert");
+    error.textContent = state.error;
+  }
+
   const balanceHeading = document.createElement("h2");
   balanceHeading.className = "game-section-title";
   balanceHeading.textContent = "所持ポイント";
@@ -50,6 +57,7 @@ export function renderGamePage(state) {
     balanceCard("ジュエル", state.game.jewels, "jewel", gameAssets.jewel),
   );
 
+  const loginBonus = renderLoginBonus(state.loginBonusStatus, state.storageReady);
   const route = document.createElement("section");
   route.className = "game-route-card";
   route.setAttribute("aria-labelledby", "route-heading");
@@ -104,10 +112,51 @@ export function renderGamePage(state) {
   info.textContent =
     "ポイントはTodo完了時に一度だけ付与されます。完了を取り消しても、付与済みポイントは減りません。";
 
-  page.append(heading, balanceHeading, balances, route, info);
+  page.append(heading);
+  if (error) {
+    page.append(error);
+  }
+  page.append(balanceHeading, balances, loginBonus, route, info);
   main.append(page);
   shell.append(main);
   return shell;
+}
+
+function renderLoginBonus(status, storageReady) {
+  const card = document.createElement("section");
+  card.className = "login-bonus-card";
+  card.setAttribute("aria-labelledby", "login-bonus-heading");
+
+  const content = document.createElement("div");
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "eyebrow";
+  eyebrow.textContent = "DAILY BONUS";
+  const heading = document.createElement("h2");
+  heading.id = "login-bonus-heading";
+  heading.textContent = `累積ログイン ${status.rewardDay}日目`;
+  const reward = document.createElement("p");
+  reward.className = "login-bonus-reward";
+  reward.textContent =
+    status.reward.type === "jewels"
+      ? `${status.reward.amount} ジュエル`
+      : `攻撃専用ポイント ${status.reward.amount}pt`;
+  content.append(eyebrow, heading, reward);
+
+  const claimButton = document.createElement("button");
+  claimButton.className = "primary-button";
+  claimButton.type = "button";
+  claimButton.dataset.action = "claim-login-bonus";
+  claimButton.disabled = !storageReady || !status.canClaim;
+  claimButton.textContent = status.canClaim
+    ? "報酬を受け取る"
+    : "本日分は受取済み";
+
+  const note = document.createElement("p");
+  note.className = "game-note";
+  note.textContent = "日付は日本時間の午前4時に切り替わります。未受取報酬は失効しますが、累積日数は保持されます。";
+
+  card.append(content, claimButton, note);
+  return card;
 }
 
 function balanceCard(label, value, type, iconPath) {

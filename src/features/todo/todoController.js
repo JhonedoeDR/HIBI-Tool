@@ -1,6 +1,11 @@
 import { renderTodoPage } from "../../ui/renderTodoPage.js";
 import { renderGamePage } from "../../ui/renderGamePage.js";
-import { awardTodoCompletion } from "../game/gameService.js";
+import {
+  awardTodoCompletion,
+  claimLoginBonus,
+  getLoginBonusStatus,
+  getMillisecondsUntilJstCutover,
+} from "../game/gameService.js";
 import {
   createTodo,
   getLocalDateKey,
@@ -32,6 +37,7 @@ export function startTodoApp(root) {
     dialogOpen: false,
     error: "",
   };
+  let loginBonusTimer = null;
 
   try {
     Object.assign(state, loadAppState());
@@ -44,8 +50,21 @@ export function startTodoApp(root) {
   }
 
   function render() {
+    if (loginBonusTimer !== null) {
+      window.clearTimeout(loginBonusTimer);
+      loginBonusTimer = null;
+    }
     if (state.view === "game") {
-      root.replaceChildren(renderGamePage(state));
+      root.replaceChildren(
+        renderGamePage({
+          ...state,
+          loginBonusStatus: getLoginBonusStatus(state.game.loginBonus),
+        }),
+      );
+      loginBonusTimer = window.setTimeout(() => {
+        loginBonusTimer = null;
+        render();
+      }, getMillisecondsUntilJstCutover() + 50);
       return;
     }
     const today = getLocalDateKey();
@@ -102,6 +121,11 @@ export function startTodoApp(root) {
     if (action === "change-view" && (view === "todo" || view === "game")) {
       state.view = view;
       render();
+    } else if (action === "claim-login-bonus" && state.storageReady) {
+      const nextGame = claimLoginBonus(state.game);
+      if (nextGame !== state.game) {
+        persistAppState(state.todos, nextGame);
+      }
     } else if (action === "change-category" && CATEGORIES.includes(category)) {
       state.category = category;
       state.selectedIds.clear();
