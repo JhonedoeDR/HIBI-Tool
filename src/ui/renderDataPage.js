@@ -39,7 +39,7 @@ export function renderDataPage(state) {
   exportTitle.textContent = "JSONバックアップ";
   const exportDescription = document.createElement("p");
   exportDescription.textContent =
-    "Todoとゲームのデータを書き出します。別の場所に保存して、端末故障やブラウザーデータ消去に備えてください。";
+    "Todo、カレンダー、ゲームのデータを書き出します。別の場所に保存して、端末故障やブラウザーデータ消去に備えてください。";
   const exportButton = document.createElement("button");
   exportButton.className = "primary-button";
   exportButton.type = "button";
@@ -70,7 +70,7 @@ export function renderDataPage(state) {
   automaticTitle.textContent = "自動バックアップ";
   const automaticDescription = document.createElement("p");
   automaticDescription.textContent =
-    `データ変更前の状態をアプリ内に最大${state.maxBackups}回分保存します。復元すると現在のTodoとゲームデータを全置換します。`;
+    `データ変更前のTodo、カレンダー、ゲームの状態をアプリ内に最大${state.maxBackups}回分保存します。復元すると現在のデータを全置換します。`;
   automaticCard.append(automaticTitle, automaticDescription);
 
   if (state.backups.length === 0) {

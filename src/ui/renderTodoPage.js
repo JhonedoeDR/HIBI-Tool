@@ -847,7 +847,11 @@ function categorySelect(value) {
 }
 
 function renderFooter() {
-  return element("footer", "app-footer", "データはこのブラウザーの端末内に保存されます。JSONバックアップ機能は未実装です。");
+  return element(
+    "footer",
+    "app-footer",
+    "データはこのブラウザーの端末内に保存されます。JSON・自動バックアップはデータ管理から利用できます。",
+  );
 }
 
 function actionButton(text, className, action) {
