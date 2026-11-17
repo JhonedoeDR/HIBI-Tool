@@ -1,8 +1,10 @@
 export const MAX_NOTIFICATION_ATTEMPTS = 5;
 export const NOTIFICATION_BATCH_SIZE = 20;
+export const NOTIFICATION_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const LEASE_DURATION_MS = 2 * 60 * 1000;
 const RETRY_BASE_MS = 60 * 1000;
 const RETRY_MAX_MS = 6 * 60 * 60 * 1000;
+const NOTIFICATION_CLEANUP_BATCH_SIZE = 500;
 
 export async function dispatchDueNotifications(database, sendNotification, now = Date.now()) {
   if (
@@ -43,6 +45,36 @@ export async function dispatchDueNotifications(database, sendNotification, now =
   }
 
   return result;
+}
+
+export async function pruneExpiredNotificationHistory(database, now = Date.now()) {
+  if (
+    !database ||
+    typeof database.prepare !== "function" ||
+    !Number.isSafeInteger(now) ||
+    now < 0
+  ) {
+    throw new TypeError("通知履歴の整理設定が正しくありません。");
+  }
+
+  const result = await database
+    .prepare(
+      `DELETE FROM scheduled_notifications
+      WHERE rowid IN (
+        SELECT rowid
+        FROM scheduled_notifications
+        WHERE status IN ('sent', 'failed', 'cancelled')
+          AND scheduled_at_ms <= ?
+        ORDER BY scheduled_at_ms
+        LIMIT ?
+      )`,
+    )
+    .bind(now - NOTIFICATION_HISTORY_RETENTION_MS, NOTIFICATION_CLEANUP_BATCH_SIZE)
+    .run();
+  if (!Number.isSafeInteger(result?.meta?.changes) || result.meta.changes < 0) {
+    throw new Error("通知履歴の整理結果を確認できませんでした。");
+  }
+  return result.meta.changes;
 }
 
 export class PushDeliveryError extends Error {

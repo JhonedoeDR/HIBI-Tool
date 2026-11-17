@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dispatchDueNotifications,
+  NOTIFICATION_HISTORY_RETENTION_MS,
+  pruneExpiredNotificationHistory,
   PushDeliveryError,
 } from "../src/features/notifications/notificationDispatcher.js";
 
@@ -118,4 +120,50 @@ test("permanent delivery errors fail without scheduling another attempt", async 
 
   assert.deepEqual(result, { claimed: 1, sent: 0, retried: 0, failed: 1 });
   assert.match(database.statements.at(-1).sql, /SET status = 'failed'/);
+});
+
+test("prunes only bounded terminal notification history older than seven days", async () => {
+  const now = 10 * NOTIFICATION_HISTORY_RETENTION_MS;
+  let statement;
+  const database = {
+    prepare(sql) {
+      return {
+        bind(...values) {
+          statement = { sql, values };
+          return {
+            async run() {
+              return { meta: { changes: 3 } };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const pruned = await pruneExpiredNotificationHistory(database, now);
+
+  assert.equal(pruned, 3);
+  assert.match(statement.sql, /status IN \('sent', 'failed', 'cancelled'\)/);
+  assert.match(statement.sql, /ORDER BY scheduled_at_ms\s+LIMIT \?/);
+  assert.deepEqual(statement.values, [
+    now - NOTIFICATION_HISTORY_RETENTION_MS,
+    500,
+  ]);
+});
+
+test("notification history cleanup reports an invalid database result", async () => {
+  const database = {
+    prepare() {
+      return {
+        bind() {
+          return { async run() { return { success: true }; } };
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    pruneExpiredNotificationHistory(database, 10_000),
+    /整理結果を確認できませんでした/,
+  );
 });

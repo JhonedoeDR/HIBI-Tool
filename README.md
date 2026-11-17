@@ -88,6 +88,7 @@ tests/
   notificationClient.test.js Firebase認証・FCM同期クライアントのテスト
   notificationSyncApi.test.js 通知同期・停止APIの認証と制限テスト
   notificationDispatcher.test.js キュー配信・再試行テスト
+  notificationWorker.test.js Cron配信・日次履歴整理のテスト
   fcmClient.test.js        FCM認証・送信テスト
   firebaseTokenVerifier.test.js Firebase IDトークン検証テスト
   firebaseAppCheckVerifier.test.js Firebase App Check検証テスト
@@ -114,7 +115,7 @@ Firebase Web設定、VAPID公開鍵、App CheckのreCAPTCHA v3サイトキーは
 
 通知を稼働させる段階では、Cloudflare PagesのD1バインディング、`FIREBASE_PROJECT_ID`、Firebase Web API設定、FCMサービスアカウントSecret、Cron Workerのデプロイが必要です。サービスアカウント秘密鍵をソースやチャットへ貼り付けないでください。これらの外部操作が実際に必要となる段階で、設定箇所と手順をまとめて案内します。
 
-通知キューは期限到来時に配信し、失敗時は最大5回まで指数バックオフで再試行します。FCMが受理した後、Workerが送信済み状態を保存する前に停止した場合は再送される可能性があるため、通知は厳密な一度限りではなく少なくとも一度の配信です。同じ通知IDをService Workerの表示タグにも使い、表示中の重複は置き換えます。
+通知キューは期限到来時に配信し、失敗時は最大5回まで指数バックオフで再試行します。Cron Workerは毎分配信処理を行い、毎日UTC 00:00に配信済み・失敗済み・取消済みの通知履歴のうち、予定日時から7日を過ぎたものを最大500件ずつ整理します。FCMが受理した後、Workerが送信済み状態を保存する前に停止した場合は再送される可能性があるため、通知は厳密な一度限りではなく少なくとも一度の配信です。同じ通知IDをService Workerの表示タグにも使い、表示中の重複は置き換えます。
 
 データ管理画面では JSON の外部書き出し・全置換復元と、自動バックアップからの復元を行えます。データ変更前の状態を同じ端末に最大10回分保持します。保存はバックアップを含む単一のlocalStorage書き込みで行い、失敗時は一度再試行してからエラーを表示します。
 
