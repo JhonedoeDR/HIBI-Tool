@@ -52,6 +52,8 @@ src/
       notificationDispatcher.js D1通知キューのリース・送信結果管理
       fcmClient.js          OAuth・FCM HTTP v1送信
       firebaseTokenVerifier.js Firebase匿名IDトークンの検証
+      firebaseAppCheckVerifier.js Firebase App Checkトークンの検証
+      firebaseAppCheckVerifier.js Firebase App Checkトークンの検証
       firebaseConfig.js     Firebase Web設定・VAPID公開鍵
       notificationClient.js 匿名認証・FCM端末登録・通知同期
       pushClient.js          通知Service Workerの登録
@@ -87,6 +89,8 @@ tests/
   notificationDispatcher.test.js キュー配信・再試行テスト
   fcmClient.test.js        FCM認証・送信テスト
   firebaseTokenVerifier.test.js Firebase IDトークン検証テスト
+  firebaseAppCheckVerifier.test.js Firebase App Check検証テスト
+  firebaseAppCheckVerifier.test.js Firebase App Check検証テスト
   notificationSyncApi.test.js 通知同期APIの認証・制限テスト
   pwa.test.js              PWA設定・Push Service Workerのテスト
   calendar.test.js         カレンダーの日付・イベント処理のテスト
@@ -103,9 +107,9 @@ Todo完了とポイント付与は同じ保存操作にまとめ、同じ完了�
 
 カレンダーの予定・締切、関連Todo、完了報酬も同じアプリ状態に保存されます。親Todoに紐付いた予定・締切には、その子Todoも自動的に含まれます。通知予定時刻は端末のローカル時刻で計算・表示します。通知設定画面から有効化すると、Firebase匿名認証を使って通知先を登録し、予定の全件スナップショットを同期します。端末の同期設定はその端末のlocalStorageに保存します。
 
-Firebase Web設定とVAPID公開鍵は [`firebaseConfig.js`](./src/features/notifications/firebaseConfig.js) に設定します。これらはブラウザーへ配信される公開設定であり、サービスアカウントJSONや秘密鍵をここに入れてはいけません。Firebase SDK 13.4.0をGoogleのgstatic CDNから読み込むため、ブラウザーが `www.gstatic.com` に接続できる必要があります。
+Firebase Web設定、VAPID公開鍵、App CheckのreCAPTCHA v3サイトキーは [`firebaseConfig.js`](./src/features/notifications/firebaseConfig.js) に設定します。これらはブラウザーへ配信される公開設定であり、サービスアカウントJSONや秘密鍵をここに入れてはいけません。Firebase SDK 13.4.0をGoogleのgstatic CDNから読み込むため、ブラウザーが `www.gstatic.com` に接続できる必要があります。Pages Functionsには `FIREBASE_PROJECT_NUMBER` と `FIREBASE_APP_ID` も設定し、APIでApp Check署名・project audience・許可アプリIDを検証します。
 
-通知同期APIはFirebase匿名IDトークンを検証し、認証されたUID以外の端末IDを受け付けません。D1上では1 UIDあたり毎分30回まで、1リクエスト500件・256 KiBまでに制限しています。公開前に匿名UIDの大量作成も考慮した追加の濫用対策を実装する必要があります。
+通知同期APIはFirebase匿名IDトークンとFirebase App Checkトークンの両方を検証し、認証UID・project audience・許可したFirebaseアプリIDを確認します。D1上では1 UIDあたり毎分30回まで、1リクエスト500件・256 KiBまでに制限しています。
 
 通知を稼働させる段階では、Cloudflare PagesのD1バインディング、`FIREBASE_PROJECT_ID`、Firebase Web API設定、FCMサービスアカウントSecret、Cron Workerのデプロイが必要です。サービスアカウント秘密鍵をソースやチャットへ貼り付けないでください。これらの外部操作が実際に必要となる段階で、設定箇所と手順をまとめて案内します。
 

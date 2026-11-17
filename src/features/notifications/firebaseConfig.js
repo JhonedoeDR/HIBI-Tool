@@ -7,3 +7,4 @@ export const firebaseConfig = Object.freeze({
 });
 
 export const vapidPublicKey = "";
+export const appCheckRecaptchaSiteKey = "";

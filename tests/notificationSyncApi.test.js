@@ -32,6 +32,32 @@ function createSignedToken() {
   };
 }
 
+function createSignedAppCheckToken() {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const keyId = `app-check-${crypto.randomUUID()}`;
+  const publicJwk = createPublicKey(publicKey).export({ format: "jwk" });
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const header = encodeBase64Url(JSON.stringify({ alg: "RS256", typ: "JWT", kid: keyId }));
+  const payload = encodeBase64Url(
+    JSON.stringify({
+      iss: "https://firebaseappcheck.googleapis.com/123456789",
+      aud: ["projects/123456789"],
+      sub: "1:123456789:web:app-id",
+      exp: issuedAt + 3600,
+    }),
+  );
+  const signingInput = `${header}.${payload}`;
+  const signature = sign("RSA-SHA256", Buffer.from(signingInput), privateKey);
+  return {
+    token: `${signingInput}.${encodeBase64Url(signature)}`,
+    publicJwk: { ...publicJwk, kid: keyId, use: "sig" },
+  };
+}
+
 function createDatabase({ quotaAllowed = true } = {}) {
   const calls = [];
   return {
@@ -57,11 +83,12 @@ function createDatabase({ quotaAllowed = true } = {}) {
   };
 }
 
-function createRequest(token, payload = createPayload()) {
+function createRequest(token, appCheckToken, payload = createPayload()) {
   return new Request("https://daily-tool.example/api/notifications/sync", {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
+      "X-Firebase-AppCheck": appCheckToken,
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -97,10 +124,13 @@ function encodeBase64Url(value) {
 test("authenticated anonymous user can sync a validated notification snapshot", async (t) => {
   const originalFetch = globalThis.fetch;
   const { token, publicJwk } = createSignedToken();
-  globalThis.fetch = async () => ({
+  const appCheck = createSignedAppCheckToken();
+  globalThis.fetch = async (url) => ({
     ok: true,
     headers: { get: () => "public, max-age=300" },
-    json: async () => ({ keys: [publicJwk] }),
+    json: async () => ({
+      keys: [url.includes("firebaseappcheck.googleapis.com") ? appCheck.publicJwk : publicJwk],
+    }),
   });
   t.after(() => {
     globalThis.fetch = originalFetch;
@@ -108,8 +138,13 @@ test("authenticated anonymous user can sync a validated notification snapshot", 
 
   const database = createDatabase();
   const response = await onRequestPost({
-    request: createRequest(token),
-    env: { DB: database, FIREBASE_PROJECT_ID: "daily-tool" },
+    request: createRequest(token, appCheck.token),
+    env: {
+      DB: database,
+      FIREBASE_PROJECT_ID: "daily-tool",
+      FIREBASE_PROJECT_NUMBER: "123456789",
+      FIREBASE_APP_ID: "1:123456789:web:app-id",
+    },
   });
 
   assert.equal(response.status, 200);
@@ -126,14 +161,19 @@ test("unauthenticated requests cannot write to D1", async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ fcmToken: "token", payload: createPayload() }),
     }),
-    env: { DB: database, FIREBASE_PROJECT_ID: "daily-tool" },
+    env: {
+      DB: database,
+      FIREBASE_PROJECT_ID: "daily-tool",
+      FIREBASE_PROJECT_NUMBER: "123456789",
+      FIREBASE_APP_ID: "1:123456789:web:app-id",
+    },
   });
 
   assert.equal(response.status, 401);
   assert.equal(database.calls.length, 0);
 });
 
-test("sync quota is enforced before the snapshot is written", async (t) => {
+test("valid Firebase identity without App Check cannot write to D1", async (t) => {
   const originalFetch = globalThis.fetch;
   const { token, publicJwk } = createSignedToken();
   globalThis.fetch = async () => ({
@@ -145,10 +185,53 @@ test("sync quota is enforced before the snapshot is written", async (t) => {
     globalThis.fetch = originalFetch;
   });
 
+  const database = createDatabase();
+  const request = new Request("https://daily-tool.example/api/notifications/sync", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ fcmToken: "fcm-device-token", payload: createPayload() }),
+  });
+  const response = await onRequestPost({
+    request,
+    env: {
+      DB: database,
+      FIREBASE_PROJECT_ID: "daily-tool",
+      FIREBASE_PROJECT_NUMBER: "123456789",
+      FIREBASE_APP_ID: "1:123456789:web:app-id",
+    },
+  });
+
+  assert.equal(response.status, 401);
+  assert.equal(database.calls.length, 0);
+});
+
+test("sync quota is enforced before the snapshot is written", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const { token, publicJwk } = createSignedToken();
+  const appCheck = createSignedAppCheckToken();
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    headers: { get: () => "public, max-age=300" },
+    json: async () => ({
+      keys: [url.includes("firebaseappcheck.googleapis.com") ? appCheck.publicJwk : publicJwk],
+    }),
+  });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
   const database = createDatabase({ quotaAllowed: false });
   const response = await onRequestPost({
-    request: createRequest(token),
-    env: { DB: database, FIREBASE_PROJECT_ID: "daily-tool" },
+    request: createRequest(token, appCheck.token),
+    env: {
+      DB: database,
+      FIREBASE_PROJECT_ID: "daily-tool",
+      FIREBASE_PROJECT_NUMBER: "123456789",
+      FIREBASE_APP_ID: "1:123456789:web:app-id",
+    },
   });
 
   assert.equal(response.status, 429);

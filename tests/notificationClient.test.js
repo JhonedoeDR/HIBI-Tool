@@ -32,14 +32,27 @@ function createDependencies(overrides = {}) {
       return { name };
     },
     getAuth: () => ({ currentUser: null }),
+    ReCaptchaV3Provider: class {
+      constructor(siteKey) {
+        this.siteKey = siteKey;
+      }
+    },
+    initializeAppCheck(_app, options) {
+      calls.push({ type: "initialize-app-check", options });
+      return { app: "daily-tool" };
+    },
     async signInAnonymously() {
       calls.push({ type: "anonymous-sign-in" });
       return { user };
     },
     getMessaging: () => ({ app: "daily-tool" }),
-    async getToken(_messaging, options) {
-      calls.push({ type: "get-token", options });
-      return "fcm-device-token";
+    async getToken(target, options) {
+      if (options) {
+        calls.push({ type: "get-token", options });
+        return "fcm-device-token";
+      }
+      calls.push({ type: "get-app-check-token", target });
+      return { token: "firebase-app-check-token" };
     },
   };
   const browser = {
@@ -70,6 +83,7 @@ function createDependencies(overrides = {}) {
     browser,
     firebaseConfig,
     vapidPublicKey: "public-vapid-key",
+    appCheckRecaptchaSiteKey: "recaptcha-v3-site-key",
     loadFirebaseSdk: async () => sdk,
     registerServiceWorker: async () => ({ scope: "https://daily-tool.example/" }),
     fetcher: async (url, options) => {
@@ -99,6 +113,14 @@ test("enables push on user action and syncs an authenticated full snapshot", asy
   const request = calls.find((call) => call.type === "sync");
   assert.equal(request.url, "/api/notifications/sync");
   assert.equal(request.options.headers.authorization, "Bearer firebase-id-token");
+  assert.equal(
+    request.options.headers["X-Firebase-AppCheck"],
+    "firebase-app-check-token",
+  );
+  assert.equal(
+    calls.find((call) => call.type === "initialize-app-check").options.provider.siteKey,
+    "recaptcha-v3-site-key",
+  );
   const body = JSON.parse(request.options.body);
   assert.equal(body.fcmToken, "fcm-device-token");
   assert.equal(body.payload.notifications[0].sourceId, "todo-1");

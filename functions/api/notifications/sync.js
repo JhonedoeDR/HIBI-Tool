@@ -1,5 +1,10 @@
 import { verifyFirebaseIdToken, FirebaseKeyServiceError, InvalidFirebaseIdTokenError } from "../../../src/features/notifications/firebaseTokenVerifier.js";
 import {
+  FirebaseAppCheckKeyServiceError,
+  InvalidFirebaseAppCheckTokenError,
+  verifyFirebaseAppCheckToken,
+} from "../../../src/features/notifications/firebaseAppCheckVerifier.js";
+import {
   consumeNotificationSyncQuota,
   persistNotificationSnapshot,
 } from "../../../src/features/notifications/d1NotificationRepository.js";
@@ -17,7 +22,11 @@ export async function onRequestPost({ request, env }) {
     typeof env.DB.prepare !== "function" ||
     typeof env.DB.batch !== "function" ||
     typeof env.FIREBASE_PROJECT_ID !== "string" ||
-    env.FIREBASE_PROJECT_ID.length === 0
+    env.FIREBASE_PROJECT_ID.length === 0 ||
+    typeof env.FIREBASE_PROJECT_NUMBER !== "string" ||
+    !/^\d+$/.test(env.FIREBASE_PROJECT_NUMBER) ||
+    typeof env.FIREBASE_APP_ID !== "string" ||
+    env.FIREBASE_APP_ID.length === 0
   ) {
     return jsonResponse(503, { error: "通知同期サービスが設定されていません。" });
   }
@@ -37,6 +46,27 @@ export async function onRequestPost({ request, env }) {
     if (error instanceof FirebaseKeyServiceError) {
       console.error("Firebaseの署名鍵を検証できませんでした。", error);
       return jsonResponse(503, { error: "認証サービスを一時的に利用できません。" });
+    }
+    throw error;
+  }
+
+  const appCheckToken = request.headers.get("x-firebase-appcheck");
+  if (!appCheckToken) {
+    return jsonResponse(401, { error: "App Checkによるアプリ確認が必要です。" });
+  }
+  try {
+    await verifyFirebaseAppCheckToken(
+      appCheckToken,
+      env.FIREBASE_PROJECT_NUMBER,
+      env.FIREBASE_APP_ID,
+    );
+  } catch (error) {
+    if (error instanceof InvalidFirebaseAppCheckTokenError) {
+      return jsonResponse(401, { error: "App Checkトークンが無効または期限切れです。" });
+    }
+    if (error instanceof FirebaseAppCheckKeyServiceError) {
+      console.error("Firebase App Check署名鍵を検証できませんでした。", error);
+      return jsonResponse(503, { error: "アプリ確認サービスを一時的に利用できません。" });
     }
     throw error;
   }

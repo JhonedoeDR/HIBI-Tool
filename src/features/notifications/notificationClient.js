@@ -1,9 +1,14 @@
-import { firebaseConfig, vapidPublicKey } from "./firebaseConfig.js";
+import {
+  appCheckRecaptchaSiteKey,
+  firebaseConfig,
+  vapidPublicKey,
+} from "./firebaseConfig.js";
 import { createNotificationSyncPayload } from "./notificationSyncService.js";
 import { registerNotificationServiceWorker } from "./pushClient.js";
 
 const FIREBASE_SDK_VERSION = "13.4.0";
 export const NOTIFICATION_SYNC_STORAGE_KEY = "daily-tool.notifications.sync-enabled.v1";
+let appCheckInstance;
 
 export class NotificationClientError extends Error {
   constructor(message, options) {
@@ -48,6 +53,7 @@ export async function enableNotificationsAndSync(
   validateFirebaseConfig(
     dependencies.firebaseConfig ?? firebaseConfig,
     dependencies.vapidPublicKey ?? vapidPublicKey,
+    dependencies.appCheckRecaptchaSiteKey ?? appCheckRecaptchaSiteKey,
   );
 
   const permission = await browser.Notification.requestPermission();
@@ -73,7 +79,9 @@ export async function syncNotificationSnapshot(data, dependencies = {}) {
 
   const config = dependencies.firebaseConfig ?? firebaseConfig;
   const publicVapidKey = dependencies.vapidPublicKey ?? vapidPublicKey;
-  validateFirebaseConfig(config, publicVapidKey);
+  const recaptchaSiteKey =
+    dependencies.appCheckRecaptchaSiteKey ?? appCheckRecaptchaSiteKey;
+  validateFirebaseConfig(config, publicVapidKey, recaptchaSiteKey);
 
   const sdk = await (dependencies.loadFirebaseSdk ?? loadFirebaseSdk)();
   if (!(await sdk.isSupported())) {
@@ -84,6 +92,10 @@ export async function syncNotificationSnapshot(data, dependencies = {}) {
     sdk.getApps().find((candidate) => candidate.name === "daily-tool-notifications") ??
     sdk.initializeApp(config, "daily-tool-notifications");
   const auth = sdk.getAuth(app);
+    appCheckInstance ??= sdk.initializeAppCheck(app, {
+      provider: new sdk.ReCaptchaV3Provider(recaptchaSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
   let user = auth.currentUser;
   if (!user) {
     const result = await sdk.signInAnonymously(auth);
@@ -94,6 +106,10 @@ export async function syncNotificationSnapshot(data, dependencies = {}) {
   }
 
   const idToken = await user.getIdToken();
+  const appCheckToken = await sdk.getToken(appCheckInstance);
+  if (typeof appCheckToken?.token !== "string" || appCheckToken.token.length === 0) {
+    throw new NotificationClientError("Firebase App Checkの確認を完了できませんでした。");
+  }
   const serviceWorkerRegistration = await (
     dependencies.registerServiceWorker ?? registerNotificationServiceWorker
   )();
@@ -115,6 +131,7 @@ export async function syncNotificationSnapshot(data, dependencies = {}) {
     method: "POST",
     headers: {
       authorization: `Bearer ${idToken}`,
+      "X-Firebase-AppCheck": appCheckToken.token,
       "content-type": "application/json",
     },
     body: JSON.stringify({ fcmToken, payload }),
@@ -155,17 +172,19 @@ function assertBrowserSupport(browser) {
   }
 }
 
-function validateFirebaseConfig(config, publicVapidKey) {
+function validateFirebaseConfig(config, publicVapidKey, recaptchaSiteKey) {
   if (
     !config ||
     ["apiKey", "authDomain", "projectId", "messagingSenderId", "appId"].some(
       (key) => typeof config[key] !== "string" || config[key].trim() === "",
     ) ||
     typeof publicVapidKey !== "string" ||
-    publicVapidKey.trim() === ""
+    publicVapidKey.trim() === "" ||
+    typeof recaptchaSiteKey !== "string" ||
+    recaptchaSiteKey.trim() === ""
   ) {
     throw new NotificationClientError(
-      "Firebase Web設定とFCM VAPID公開鍵がまだアプリに設定されていません。",
+      "Firebase Web設定、FCM VAPID公開鍵、App Checkサイトキーがまだアプリに設定されていません。",
     );
   }
 }
@@ -173,12 +192,13 @@ function validateFirebaseConfig(config, publicVapidKey) {
 async function loadFirebaseSdk() {
   const sdkUrl = `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}`;
   try {
-    const [app, auth, messaging] = await Promise.all([
+    const [app, auth, appCheck, messaging] = await Promise.all([
       import(`${sdkUrl}/firebase-app.js`),
       import(`${sdkUrl}/firebase-auth.js`),
+      import(`${sdkUrl}/firebase-app-check.js`),
       import(`${sdkUrl}/firebase-messaging.js`),
     ]);
-    return { ...app, ...auth, ...messaging };
+    return { ...app, ...auth, ...appCheck, ...messaging };
   } catch (cause) {
     throw new NotificationClientError("Firebase SDKを読み込めませんでした。", {
       cause,
