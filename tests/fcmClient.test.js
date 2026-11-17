@@ -78,11 +78,47 @@ test("classifies an unregistered token so the device can be removed", async () =
       "access-token",
       "daily-tool",
       { fcm_token: "invalid-token" },
-      async () => ({ ok: false, status: 404 }),
+      async () => ({
+        ok: false,
+        status: 404,
+        async json() {
+          return {
+            error: {
+              details: [
+                {
+                  "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+                  errorCode: "UNREGISTERED",
+                },
+              ],
+            },
+          };
+        },
+      }),
     ),
     (error) =>
       error instanceof PushDeliveryError &&
       error.invalidToken &&
       error.code === "fcm_http_404",
+  );
+});
+
+test("does not classify unrelated FCM 404 responses as stale device tokens", async () => {
+  await assert.rejects(
+    sendFcmNotification(
+      "access-token",
+      "daily-tool",
+      { fcm_token: "device-token" },
+      async () => ({
+        ok: false,
+        status: 404,
+        async json() {
+          return { error: { status: "NOT_FOUND", details: [] } };
+        },
+      }),
+    ),
+    (error) =>
+      error instanceof PushDeliveryError &&
+      !error.invalidToken &&
+      !error.retryable,
   );
 });

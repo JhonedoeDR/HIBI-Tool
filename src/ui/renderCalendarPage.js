@@ -93,7 +93,7 @@ export function renderCalendarPage(state) {
     make(
       "p",
       "calendar-note",
-      "カレンダーの内容は端末内に保存されます。通知時刻は表示されますが、実際の通知配信とGoogle Calendar同期は未実装です。",
+      "カレンダーの内容は端末内に保存されます。プッシュ通知は通知設定から同期できます。Google Calendar同期は未実装です。",
     ),
   );
 

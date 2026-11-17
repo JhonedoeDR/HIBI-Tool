@@ -77,44 +77,14 @@ export async function syncNotificationSnapshot(data, dependencies = {}) {
     );
   }
 
-  const config = dependencies.firebaseConfig ?? firebaseConfig;
   const publicVapidKey = dependencies.vapidPublicKey ?? vapidPublicKey;
-  const recaptchaSiteKey =
-    dependencies.appCheckRecaptchaSiteKey ?? appCheckRecaptchaSiteKey;
-  validateFirebaseConfig(config, publicVapidKey, recaptchaSiteKey);
-
-  const sdk = await (dependencies.loadFirebaseSdk ?? loadFirebaseSdk)();
-  if (!(await sdk.isSupported())) {
-    throw new NotificationClientError("このブラウザーではFirebase通知を利用できません。");
-  }
-
-  const app =
-    sdk.getApps().find((candidate) => candidate.name === "daily-tool-notifications") ??
-    sdk.initializeApp(config, "daily-tool-notifications");
-  const auth = sdk.getAuth(app);
-    appCheckInstance ??= sdk.initializeAppCheck(app, {
-      provider: new sdk.ReCaptchaV3Provider(recaptchaSiteKey),
-      isTokenAutoRefreshEnabled: true,
-    });
-  let user = auth.currentUser;
-  if (!user) {
-    const result = await sdk.signInAnonymously(auth);
-    user = result.user;
-  }
-  if (!user || typeof user.getIdToken !== "function") {
-    throw new NotificationClientError("Firebase匿名認証を完了できませんでした。");
-  }
-
-  const idToken = await user.getIdToken();
-  const appCheckToken = await sdk.getToken(appCheckInstance);
-  if (typeof appCheckToken?.token !== "string" || appCheckToken.token.length === 0) {
-    throw new NotificationClientError("Firebase App Checkの確認を完了できませんでした。");
-  }
+  const authorization = await getFirebaseAuthorization(dependencies);
+  const { sdk, app } = authorization;
   const serviceWorkerRegistration = await (
     dependencies.registerServiceWorker ?? registerNotificationServiceWorker
   )();
   const messaging = sdk.getMessaging(app);
-  const fcmToken = await sdk.getToken(messaging, {
+  const fcmToken = await sdk.getFcmToken(messaging, {
     vapidKey: publicVapidKey,
     serviceWorkerRegistration,
   });
@@ -130,8 +100,7 @@ export async function syncNotificationSnapshot(data, dependencies = {}) {
   const response = await (dependencies.fetcher ?? fetch)("/api/notifications/sync", {
     method: "POST",
     headers: {
-      authorization: `Bearer ${idToken}`,
-      "X-Firebase-AppCheck": appCheckToken.token,
+      ...authorization.headers,
       "content-type": "application/json",
     },
     body: JSON.stringify({ fcmToken, payload }),
@@ -157,6 +126,87 @@ export async function syncNotificationSnapshot(data, dependencies = {}) {
     throw new NotificationClientError("通知同期APIの応答形式が正しくありません。");
   }
   return { scheduledCount: result.scheduledCount };
+}
+
+export async function disableNotificationSync(dependencies = {}) {
+  const browser = dependencies.browser ?? globalThis;
+  if (!browser.isSecureContext) {
+    throw new NotificationClientError("通知設定にはHTTPS接続が必要です。");
+  }
+  const authorization = await getFirebaseAuthorization(dependencies, {
+    requireExistingUser: true,
+  });
+  const response = await (dependencies.fetcher ?? fetch)(
+    "/api/notifications/device",
+    { method: "DELETE", headers: authorization.headers },
+  );
+  let result;
+  try {
+    result = await response.json();
+  } catch (cause) {
+    throw new NotificationClientError(
+      `通知停止APIの応答を読み取れませんでした (HTTP ${response.status})。`,
+      { cause },
+    );
+  }
+  if (!response.ok || result?.removed !== true) {
+    throw new NotificationClientError(
+      typeof result?.error === "string"
+        ? result.error
+        : `通知同期を停止できませんでした (HTTP ${response.status})。`,
+    );
+  }
+}
+
+async function getFirebaseAuthorization(
+  dependencies,
+  { requireExistingUser = false } = {},
+) {
+  const config = dependencies.firebaseConfig ?? firebaseConfig;
+  const publicVapidKey = dependencies.vapidPublicKey ?? vapidPublicKey;
+  const recaptchaSiteKey =
+    dependencies.appCheckRecaptchaSiteKey ?? appCheckRecaptchaSiteKey;
+  validateFirebaseConfig(config, publicVapidKey, recaptchaSiteKey);
+
+  const sdk = await (dependencies.loadFirebaseSdk ?? loadFirebaseSdk)();
+  if (!(await sdk.isSupported())) {
+    throw new NotificationClientError("このブラウザーではFirebase通知を利用できません。");
+  }
+
+  const app =
+    sdk.getApps().find((candidate) => candidate.name === "daily-tool-notifications") ??
+    sdk.initializeApp(config, "daily-tool-notifications");
+  const auth = sdk.getAuth(app);
+  appCheckInstance ??= sdk.initializeAppCheck(app, {
+    provider: new sdk.ReCaptchaV3Provider(recaptchaSiteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+  let user = auth.currentUser;
+  if (!user && !requireExistingUser) {
+    const result = await sdk.signInAnonymously(auth);
+    user = result.user;
+  }
+  if (!user || typeof user.getIdToken !== "function") {
+    throw new NotificationClientError(
+      requireExistingUser
+        ? "この端末の通知認証情報がありません。同期を有効にした端末で停止してください。"
+        : "Firebase匿名認証を完了できませんでした。",
+    );
+  }
+
+  const idToken = await user.getIdToken();
+  const appCheckToken = await sdk.getAppCheckToken(appCheckInstance);
+  if (typeof appCheckToken?.token !== "string" || appCheckToken.token.length === 0) {
+    throw new NotificationClientError("Firebase App Checkの確認を完了できませんでした。");
+  }
+  return {
+    sdk,
+    app,
+    headers: {
+      authorization: `Bearer ${idToken}`,
+      "X-Firebase-AppCheck": appCheckToken.token,
+    },
+  };
 }
 
 function assertBrowserSupport(browser) {
@@ -198,7 +248,15 @@ async function loadFirebaseSdk() {
       import(`${sdkUrl}/firebase-app-check.js`),
       import(`${sdkUrl}/firebase-messaging.js`),
     ]);
-    return { ...app, ...auth, ...appCheck, ...messaging };
+    return {
+      ...app,
+      ...auth,
+      ...messaging,
+      initializeAppCheck: appCheck.initializeAppCheck,
+      ReCaptchaV3Provider: appCheck.ReCaptchaV3Provider,
+      getAppCheckToken: appCheck.getToken,
+      getFcmToken: messaging.getToken,
+    };
   } catch (cause) {
     throw new NotificationClientError("Firebase SDKを読み込めませんでした。", {
       cause,

@@ -4,7 +4,7 @@
 
 ## 現在の状態
 
-Todo 画面、Todo の端末内保存、分類・期限フィルター、並び替え、完了・削除、チェックリスト、複数リンクを実装しています。Todoは既存Todoを親として設定でき、一覧に親子関係を表示します。親Todoの編集画面から子Todo作成画面を重ねて開け、親の未保存入力を保持します。新規親Todoの場合は、親の保存と同時に子Todoも保存します。子Todoはすべて表示・順次表示・カスタム表示を親ごとに選べ、順次表示の順序とカスタム表示の順序・タイミング（1〜100の表示グループ）を設定できます。ルーティンTodoは毎日・毎週・毎月・毎年・任意間隔と、毎月／毎年の第○曜日を指定できます。完了時は次回周期に進み、期限を過ぎた未完了周期は次の予定日にスキップします。カレンダー予定・締切にも複数のTodoを紐付けられ、親Todoを選ぶと子Todoも含まれます。Todoの開始日・期限、予定の準備開始・出発・開始、締切の指定オフセットから通知予定時刻を算出し、Todo一覧とカレンダー詳細に表示します（過去分と完了済み項目は除外）。通知サーバー連携用に、安定ID付きスナップショット生成、Cloudflare D1保存、Firebase匿名IDトークンを検証するPages Functions同期API、期限到来通知をFCMへ送るCron Workerを追加しました。通知設定画面からFirebase匿名認証とFCM端末登録を行い、予定を同期するクライアント処理も実装しました。通知を有効にした後はアプリデータの変更時に予定を自動で再同期します。同期APIは端末ごとの回数・データ量を制限します。WorkerにはOAuth認証、リース付きキュー処理、指数バックオフ再試行、無効トークン処理を実装しています。Firebase Web設定は未入力で、追加の濫用対策・Cloudflare/FCM設定・デプロイも未完了のため、実際のプッシュ通知はまだ配信されません。累積ログインボーナスもJST午前4時区切りで受取・保存します。戦闘ロジックの基礎として、1回の攻撃で武器攻撃力を合算し、攻撃専用ポイントを優先消費する処理を実装しています。月表示カレンダーでは予定・締切の登録、編集、削除、完了チェックができ、チェック時に5ptを一度だけ付与します。JSONバックアップの書き出し・全置換復元と、変更前スナップショットの最新10回分保存にも対応しています。iOS通知の準備としてWeb App Manifestと通知クリックを扱うService Workerを追加しました。戦闘画面、敵・進行度の数値、武器特性、敵撃破・マス報酬、Google Calendar/Maps連携は未実装です。仕様書にある未確定事項は、確定仕様として扱わず機能実装前に整理します。
+Todo 画面、Todo の端末内保存、分類・期限フィルター、並び替え、完了・削除、チェックリスト、複数リンクを実装しています。Todoは既存Todoを親として設定でき、一覧に親子関係を表示します。親Todoの編集画面から子Todo作成画面を重ねて開け、親の未保存入力を保持します。新規親Todoの場合は、親の保存と同時に子Todoも保存します。子Todoはすべて表示・順次表示・カスタム表示を親ごとに選べ、順次表示の順序とカスタム表示の順序・タイミング（1〜100の表示グループ）を設定できます。ルーティンTodoは毎日・毎週・毎月・毎年・任意間隔と、毎月／毎年の第○曜日を指定できます。完了時は次回周期に進み、期限を過ぎた未完了周期は次の予定日にスキップします。カレンダー予定・締切にも複数のTodoを紐付けられ、親Todoを選ぶと子Todoも含まれます。Todoの開始日・期限、予定の準備開始・出発・開始、締切の指定オフセットから通知予定時刻を算出し、Todo一覧とカレンダー詳細に表示します（過去分と完了済み項目は除外）。通知サーバー連携用に、安定ID付きスナップショット生成、Cloudflare D1保存、Firebase匿名IDトークンとApp Checkを検証するPages Functions同期API、期限到来通知をFCMへ送るCron Workerを追加しました。通知設定画面からFirebase匿名認証とFCM端末登録を行い、予定を同期するクライアント処理も実装しました。通知を有効にした後はアプリデータの変更時に予定を自動で再同期します。同期APIは端末ごとの回数・データ量を制限し、停止操作ではサーバー上の端末登録と通知予定を削除します。WorkerにはOAuth認証、リース付きキュー処理、指数バックオフ再試行、無効トークン処理を実装しています。Firebase Web設定は未入力で、Cloudflare/FCM設定とデプロイも未完了のため、実際のプッシュ通知はまだ配信されません。累積ログインボーナスもJST午前4時区切りで受取・保存します。戦闘ロジックの基礎として、1回の攻撃で武器攻撃力を合算し、攻撃専用ポイントを優先消費する処理を実装しています。月表示カレンダーでは予定・締切の登録、編集、削除、完了チェックができ、チェック時に5ptを一度だけ付与します。JSONバックアップの書き出し・全置換復元と、変更前スナップショットの最新10回分保存にも対応しています。iOS通知の準備としてWeb App Manifestと通知クリックを扱うService Workerを追加しました。戦闘画面、敵・進行度の数値、武器特性、敵撃破・マス報酬、Google Calendar/Maps連携は未実装です。仕様書にある未確定事項は、確定仕様として扱わず機能実装前に整理します。
 
 ## 起動方法
 
@@ -53,7 +53,6 @@ src/
       fcmClient.js          OAuth・FCM HTTP v1送信
       firebaseTokenVerifier.js Firebase匿名IDトークンの検証
       firebaseAppCheckVerifier.js Firebase App Checkトークンの検証
-      firebaseAppCheckVerifier.js Firebase App Checkトークンの検証
       firebaseConfig.js     Firebase Web設定・VAPID公開鍵
       notificationClient.js 匿名認証・FCM端末登録・通知同期
       pushClient.js          通知Service Workerの登録
@@ -77,6 +76,7 @@ migrations/
   0002_notification_auth.sql   通知同期の認証・回数制限用スキーマ
 functions/
   api/notifications/sync.js    認証済み通知スナップショット同期API
+  api/notifications/device.js  認証済み端末通知の停止API
 workers/
   notification-dispatcher.js 期限到来通知を送るCron Worker
   wrangler.toml                Worker・D1・Cron設定
@@ -86,12 +86,11 @@ tests/
   notification.test.js     通知予定時刻の計算テスト
   notificationRepository.test.js D1スナップショット保存のテスト
   notificationClient.test.js Firebase認証・FCM同期クライアントのテスト
+  notificationSyncApi.test.js 通知同期・停止APIの認証と制限テスト
   notificationDispatcher.test.js キュー配信・再試行テスト
   fcmClient.test.js        FCM認証・送信テスト
   firebaseTokenVerifier.test.js Firebase IDトークン検証テスト
   firebaseAppCheckVerifier.test.js Firebase App Check検証テスト
-  firebaseAppCheckVerifier.test.js Firebase App Check検証テスト
-  notificationSyncApi.test.js 通知同期APIの認証・制限テスト
   pwa.test.js              PWA設定・Push Service Workerのテスト
   calendar.test.js         カレンダーの日付・イベント処理のテスト
   game.test.js             ポイント・ログインボーナスのテスト
@@ -108,6 +107,8 @@ Todo完了とポイント付与は同じ保存操作にまとめ、同じ完了�
 カレンダーの予定・締切、関連Todo、完了報酬も同じアプリ状態に保存されます。親Todoに紐付いた予定・締切には、その子Todoも自動的に含まれます。通知予定時刻は端末のローカル時刻で計算・表示します。通知設定画面から有効化すると、Firebase匿名認証を使って通知先を登録し、予定の全件スナップショットを同期します。端末の同期設定はその端末のlocalStorageに保存します。
 
 Firebase Web設定、VAPID公開鍵、App CheckのreCAPTCHA v3サイトキーは [`firebaseConfig.js`](./src/features/notifications/firebaseConfig.js) に設定します。これらはブラウザーへ配信される公開設定であり、サービスアカウントJSONや秘密鍵をここに入れてはいけません。Firebase SDK 13.4.0をGoogleのgstatic CDNから読み込むため、ブラウザーが `www.gstatic.com` に接続できる必要があります。Pages Functionsには `FIREBASE_PROJECT_NUMBER` と `FIREBASE_APP_ID` も設定し、APIでApp Check署名・project audience・許可アプリIDを検証します。
+
+通知設定画面の「通知の同期を停止」は、この端末の自動同期設定を解除し、サーバー上の端末登録と未送信の通知予定を削除します。ブラウザーの通知許可自体は解除しません。
 
 通知同期APIはFirebase匿名IDトークンとFirebase App Checkトークンの両方を検証し、認証UID・project audience・許可したFirebaseアプリIDを確認します。D1上では1 UIDあたり毎分30回まで、1リクエスト500件・256 KiBまでに制限しています。
 

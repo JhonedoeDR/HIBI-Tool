@@ -58,6 +58,15 @@ export function renderNotificationPage(state) {
       : "通知を許可して同期";
 
   card.append(cardTitle, cardDescription, status, message, syncButton);
+  if (state.notificationSyncEnabled) {
+    const disableButton = document.createElement("button");
+    disableButton.className = "secondary-button";
+    disableButton.type = "button";
+    disableButton.dataset.action = "disable-notifications";
+    disableButton.disabled = state.notificationSyncing;
+    disableButton.textContent = "通知の同期を停止";
+    card.append(disableButton);
+  }
   main.append(card);
   shell.append(main);
   return shell;

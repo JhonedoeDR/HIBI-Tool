@@ -82,12 +82,24 @@ export async function sendFcmNotification(
         }),
       },
     );
-  } catch {
+  } catch (cause) {
+    console.warn("FCM通知リクエストに接続できませんでした。", cause);
     throw new PushDeliveryError("fcm_network_error", { retryable: true });
   }
 
   if (!response.ok) {
-    const invalidToken = response.status === 404;
+    let responseBody;
+    try {
+      responseBody = await response.json();
+    } catch (cause) {
+      responseBody = null;
+      console.warn("FCMエラー応答を解析できませんでした。", cause);
+    }
+    const invalidToken =
+      response.status === 404 &&
+      responseBody?.error?.details?.some(
+        (detail) => detail?.errorCode === "UNREGISTERED",
+      ) === true;
     const retryable =
       response.status === 408 ||
       response.status === 429 ||

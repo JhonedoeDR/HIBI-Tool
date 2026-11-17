@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createPublicKey, generateKeyPairSync, sign } from "node:crypto";
 import test from "node:test";
 import { onRequestPost } from "../functions/api/notifications/sync.js";
+import { onRequestDelete } from "../functions/api/notifications/device.js";
 
 function createSignedToken() {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", {
@@ -68,6 +69,10 @@ function createDatabase({ quotaAllowed = true } = {}) {
           const statement = { sql, values };
           return {
             ...statement,
+            async run() {
+              calls.push(statement);
+              return { success: true };
+            },
             async all() {
               calls.push(statement);
               return { results: quotaAllowed ? [{ sync_count: 1 }] : [] };
@@ -236,4 +241,74 @@ test("sync quota is enforced before the snapshot is written", async (t) => {
 
   assert.equal(response.status, 429);
   assert.equal(database.calls.filter((call) => /INSERT INTO scheduled_notifications/.test(call.sql)).length, 0);
+});
+
+test("notification stop only deletes the authenticated UID's device and its jobs", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const { token, publicJwk } = createSignedToken();
+  const appCheck = createSignedAppCheckToken();
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    headers: { get: () => "public, max-age=300" },
+    json: async () => ({
+      keys: [url.includes("firebaseappcheck.googleapis.com") ? appCheck.publicJwk : publicJwk],
+    }),
+  });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const database = createDatabase();
+  const response = await onRequestDelete({
+    request: new Request("https://daily-tool.example/api/notifications/device", {
+      method: "DELETE",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "X-Firebase-AppCheck": appCheck.token,
+      },
+    }),
+    env: {
+      DB: database,
+      FIREBASE_PROJECT_ID: "daily-tool",
+      FIREBASE_PROJECT_NUMBER: "123456789",
+      FIREBASE_APP_ID: "1:123456789:web:app-id",
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { removed: true });
+  const deletion = database.calls.find((call) =>
+    /DELETE FROM notification_devices/.test(call.sql),
+  );
+  assert.deepEqual(deletion.values, ["anonymous-user-1"]);
+});
+
+test("notification stop rejects missing App Check before touching D1", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const { token, publicJwk } = createSignedToken();
+  globalThis.fetch = async () => ({
+    ok: true,
+    headers: { get: () => "public, max-age=300" },
+    json: async () => ({ keys: [publicJwk] }),
+  });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const database = createDatabase();
+  const response = await onRequestDelete({
+    request: new Request("https://daily-tool.example/api/notifications/device", {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}` },
+    }),
+    env: {
+      DB: database,
+      FIREBASE_PROJECT_ID: "daily-tool",
+      FIREBASE_PROJECT_NUMBER: "123456789",
+      FIREBASE_APP_ID: "1:123456789:web:app-id",
+    },
+  });
+
+  assert.equal(response.status, 401);
+  assert.equal(database.calls.length, 0);
 });

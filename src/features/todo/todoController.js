@@ -34,6 +34,7 @@ import {
 } from "./todoService.js";
 import { advanceMissedRoutineTodos, advanceRoutineTodo } from "./routineService.js";
 import {
+  disableNotificationSync,
   enableNotificationsAndSync,
   loadNotificationSyncPreference,
   saveNotificationSyncPreference,
@@ -91,6 +92,39 @@ export function startTodoApp(root) {
     state.notificationSyncEnabled = loadNotificationSyncPreference();
   } catch (error) {
     state.notificationError = error.message;
+  }
+
+  async function stopNotificationSync() {
+    if (notificationSyncTimer !== null) {
+      window.clearTimeout(notificationSyncTimer);
+      notificationSyncTimer = null;
+    }
+    state.notificationSyncing = true;
+    state.notificationError = "";
+    state.notificationMessage = "";
+    render();
+    try {
+      saveNotificationSyncPreference(false);
+      state.notificationSyncEnabled = false;
+      await disableNotificationSync();
+      state.notificationMessage = "この端末への通知配信と自動同期を停止しました。";
+    } catch (error) {
+      try {
+        saveNotificationSyncPreference(true);
+        state.notificationSyncEnabled = true;
+      } catch (preferenceError) {
+        state.notificationSyncEnabled = false;
+        state.notificationError =
+          `通知設定を端末に保存できませんでした: ${preferenceError.message}`;
+      }
+      if (!state.notificationError) {
+        state.notificationError = error.message;
+      }
+      state.notificationMessage = "";
+    } finally {
+      state.notificationSyncing = false;
+      render();
+    }
   }
 
   try {
@@ -298,6 +332,13 @@ export function startTodoApp(root) {
       render();
     } else if (action === "sync-notifications" && state.storageReady) {
       void syncNotifications();
+    } else if (
+      action === "disable-notifications" &&
+      state.storageReady &&
+      !state.notificationSyncing &&
+      window.confirm("この端末への通知配信と自動同期を停止しますか？")
+    ) {
+      void stopNotificationSync();
     } else if (action === "previous-month") {
       state.calendarMonth = shiftMonth(state.calendarMonth, -1);
       render();

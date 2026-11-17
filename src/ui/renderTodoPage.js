@@ -93,7 +93,11 @@ function renderHeading(state) {
     element("p", "eyebrow", "YOUR DAILY FLOW"),
     element("h1", "", "Todo"),
     element("p", "page-description", "小さな一歩を、今日の前進に。"),
-    element("p", "page-description", "通知予定時刻の表示のみ対応しています。実際の通知配信は未実装です。"),
+    element(
+      "p",
+      "page-description",
+      "通知予定時刻を表示します。プッシュ通知は通知設定で同期を有効にし、サーバー設定が完了している場合に配信されます。",
+    ),
   );
   const addButton = actionButton("＋ Todoを追加", "primary-button", "new-todo");
   addButton.disabled = !state.storageReady;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   enableNotificationsAndSync,
+  disableNotificationSync,
   loadNotificationSyncPreference,
   NOTIFICATION_SYNC_STORAGE_KEY,
   NotificationClientError,
@@ -46,13 +47,13 @@ function createDependencies(overrides = {}) {
       return { user };
     },
     getMessaging: () => ({ app: "daily-tool" }),
-    async getToken(target, options) {
-      if (options) {
-        calls.push({ type: "get-token", options });
-        return "fcm-device-token";
-      }
+    async getAppCheckToken(target) {
       calls.push({ type: "get-app-check-token", target });
       return { token: "firebase-app-check-token" };
+    },
+    async getFcmToken(_messaging, options) {
+      calls.push({ type: "get-token", options });
+      return "fcm-device-token";
     },
   };
   const browser = {
@@ -209,6 +210,44 @@ test("automatic sync does not prompt again and surfaces API authentication error
       error instanceof NotificationClientError &&
       error.message.includes("認証情報が無効"),
   );
+});
+
+test("notification stop removes the authenticated device without prompting or creating a new identity", async () => {
+  const { calls, dependencies } = createDependencies();
+  const user = {
+    async getIdToken() {
+      return "existing-id-token";
+    },
+  };
+  dependencies.loadFirebaseSdk = async () => ({
+    isSupported: async () => true,
+    getApps: () => [{ name: "daily-tool-notifications" }],
+    getAuth: () => ({ currentUser: user }),
+    initializeAppCheck: () => ({}),
+    ReCaptchaV3Provider: class {},
+    async getAppCheckToken() {
+      return { token: "app-check-token" };
+    },
+  });
+  dependencies.fetcher = async (url, options) => {
+    calls.push({ type: "stop", url, options });
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { removed: true };
+      },
+    };
+  };
+
+  await disableNotificationSync(dependencies);
+
+  const request = calls.find((call) => call.type === "stop");
+  assert.equal(request.url, "/api/notifications/device");
+  assert.equal(request.options.method, "DELETE");
+  assert.equal(request.options.headers.authorization, "Bearer existing-id-token");
+  assert.equal(request.options.headers["X-Firebase-AppCheck"], "app-check-token");
+  assert.equal(calls.some((call) => call.type === "request-permission"), false);
 });
 
 test("stores the notification sync preference and reports storage failures", () => {
