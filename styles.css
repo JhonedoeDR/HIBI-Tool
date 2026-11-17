@@ -1165,6 +1165,14 @@ textarea:focus-visible {
   line-height: 1.65;
 }
 
+.notification-status {
+  font-weight: 700;
+}
+
+.notification-message {
+  color: var(--purple-dark) !important;
+}
+
 .data-actions {
   display: flex;
   flex-wrap: wrap;

@@ -42,6 +42,7 @@ export function renderSidebar(view = "todo") {
     navButton("✓", "Todo", "todo", view),
     navButton("▦", "カレンダー", "calendar", view),
     navButton("◇", "ゲーム", "game", view),
+    navButton("◉", "通知設定", "notifications", view),
     navButton("▣", "武器・アイテム"),
     navButton("⚙", "データ管理", "data", view),
   );

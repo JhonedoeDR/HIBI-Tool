@@ -2,6 +2,7 @@ import { renderTodoPage, updateRoutineFields } from "../../ui/renderTodoPage.js"
 import { renderGamePage } from "../../ui/renderGamePage.js";
 import { renderDataPage } from "../../ui/renderDataPage.js";
 import { renderCalendarPage } from "../../ui/renderCalendarPage.js";
+import { renderNotificationPage } from "../../ui/renderNotificationPage.js";
 import { BackupFormatError, createBackupJson, parseBackupJson } from "../data/backupService.js";
 import {
   awardCalendarCompletion,
@@ -32,6 +33,12 @@ import {
   TodoValidationError,
 } from "./todoService.js";
 import { advanceMissedRoutineTodos, advanceRoutineTodo } from "./routineService.js";
+import {
+  enableNotificationsAndSync,
+  loadNotificationSyncPreference,
+  saveNotificationSyncPreference,
+  syncNotificationSnapshot,
+} from "../notifications/notificationClient.js";
 import {
   createInitialGameState,
   loadAppState,
@@ -68,9 +75,23 @@ export function startTodoApp(root) {
     childDialogOpen: false,
     childError: "",
     error: "",
+    notificationSyncEnabled: false,
+    notificationSyncing: false,
+    notificationPermission:
+      typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+    notificationMessage: "",
+    notificationError: "",
   };
   let loginBonusTimer = null;
   let routineRefreshTimer = null;
+  let notificationSyncTimer = null;
+  let notificationSyncPending = false;
+
+  try {
+    state.notificationSyncEnabled = loadNotificationSyncPreference();
+  } catch (error) {
+    state.notificationError = error.message;
+  }
 
   try {
     Object.assign(state, loadAppState());
@@ -99,6 +120,10 @@ export function startTodoApp(root) {
         loginBonusTimer = null;
         render();
       }, getMillisecondsUntilJstCutover() + 50);
+      return;
+    }
+    if (state.view === "notifications") {
+      root.replaceChildren(renderNotificationPage(state));
       return;
     }
     if (state.view === "data") {
@@ -158,12 +183,69 @@ export function startTodoApp(root) {
       state.backups = savedState.backups;
       state.error = "";
       render();
+      queueNotificationSync();
     } catch (error) {
       if (!(error instanceof TodoStorageError)) {
         throw error;
       }
       state.error = error.message;
       render();
+    }
+  }
+
+  function queueNotificationSync(delay = 600) {
+    if (!state.notificationSyncEnabled || !state.storageReady) {
+      return;
+    }
+    if (notificationSyncTimer !== null) {
+      window.clearTimeout(notificationSyncTimer);
+    }
+    notificationSyncTimer = window.setTimeout(() => {
+      notificationSyncTimer = null;
+      void syncNotifications({ showProgress: false });
+    }, delay);
+  }
+
+  async function syncNotifications({ showProgress = true } = {}) {
+    if (state.notificationSyncing) {
+      notificationSyncPending = true;
+      return;
+    }
+    const shouldRequestPermission = !state.notificationSyncEnabled;
+    state.notificationSyncing = true;
+    state.notificationError = "";
+    if (showProgress) {
+      state.notificationMessage = "";
+      render();
+    }
+
+    try {
+      const data = { todos: state.todos, calendarEvents: state.calendarEvents };
+      const result = shouldRequestPermission
+        ? await enableNotificationsAndSync(data)
+        : await syncNotificationSnapshot(data);
+      if (shouldRequestPermission) {
+        saveNotificationSyncPreference(true);
+        state.notificationSyncEnabled = true;
+      }
+      state.notificationPermission =
+        typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+      state.notificationMessage = `${result.scheduledCount}件の通知予定を同期しました。`;
+      state.notificationError = "";
+    } catch (error) {
+      state.notificationError = error.message;
+      state.notificationMessage = "";
+      state.notificationPermission =
+        typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+    } finally {
+      state.notificationSyncing = false;
+      if (showProgress || state.view === "notifications") {
+        render();
+      }
+      if (notificationSyncPending) {
+        notificationSyncPending = false;
+        queueNotificationSync(0);
+      }
     }
   }
 
@@ -208,9 +290,14 @@ export function startTodoApp(root) {
     }
 
     const { action, todoId, category, view } = button.dataset;
-    if (action === "change-view" && ["todo", "game", "data", "calendar"].includes(view)) {
+    if (
+      action === "change-view" &&
+      ["todo", "game", "data", "calendar", "notifications"].includes(view)
+    ) {
       state.view = view;
       render();
+    } else if (action === "sync-notifications" && state.storageReady) {
+      void syncNotifications();
     } else if (action === "previous-month") {
       state.calendarMonth = shiftMonth(state.calendarMonth, -1);
       render();
@@ -640,6 +727,7 @@ export function startTodoApp(root) {
         state.calendarEditingId = null;
         state.error = "";
         render();
+        queueNotificationSync();
       } catch (error) {
         if (!(error instanceof CalendarValidationError || error instanceof TodoStorageError)) {
           throw error;
@@ -697,6 +785,9 @@ export function startTodoApp(root) {
         state.childError = "";
         state.error = "";
         render();
+        if (parent) {
+          queueNotificationSync();
+        }
       } catch (error) {
         if (!(error instanceof TodoValidationError || error instanceof TodoStorageError)) {
           throw error;
@@ -778,6 +869,7 @@ export function startTodoApp(root) {
       state.error = "";
       state.storageReady = true;
       render();
+      queueNotificationSync();
     } catch (error) {
       if (!(error instanceof TodoValidationError || error instanceof TodoStorageError)) {
         throw error;
@@ -806,6 +898,9 @@ export function startTodoApp(root) {
         state.childError = "";
         if (state.error) {
           render();
+          if (state.notificationSyncEnabled) {
+            queueNotificationSync(0);
+          }
         }
       } else if (event.target.id === "calendar-dialog") {
         state.calendarDialogOpen = false;
