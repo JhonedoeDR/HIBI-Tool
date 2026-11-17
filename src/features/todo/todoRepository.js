@@ -8,7 +8,7 @@ import {
 export const APP_STORAGE_KEY = "daily-tool.state.v1";
 export const TODO_STORAGE_KEY = "daily-tool.todos.v1";
 export const MAX_AUTOMATIC_BACKUPS = 10;
-const APP_SCHEMA_VERSION = 8;
+const APP_SCHEMA_VERSION = 9;
 
 export class TodoStorageError extends Error {
   constructor(message, options) {
@@ -177,7 +177,7 @@ function parseAppState(raw) {
     });
   }
   if (
-    ![1, 2, 3, 4, 5, 6, 7, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
+    ![1, 2, 3, 4, 5, 6, 7, 8, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
     !Array.isArray(parsed.todos) ||
     !parsed.todos.every(isTodoRecord) ||
     (parsed.calendarEvents !== undefined &&
@@ -280,6 +280,9 @@ function normalizeAppData(data) {
     game,
     calendarEvents: calendarEvents.map((event) => ({
       ...event,
+      ...(event.type === "appointment"
+        ? { durationMinutes: event.durationMinutes ?? 60 }
+        : {}),
       notificationsEnabled: event.notificationsEnabled ?? true,
       todoIds: expandLinkedTodoIds(normalizedTodos, event.todoIds),
     })),
@@ -393,6 +396,10 @@ function isCalendarEvent(event) {
   if (event.type === "appointment") {
     return (
       isTime(event.startTime) &&
+      (event.durationMinutes === undefined ||
+        (Number.isSafeInteger(event.durationMinutes) &&
+          event.durationMinutes >= 1 &&
+          event.durationMinutes <= 1440)) &&
       isDuration(event.travelMinutes) &&
       isDuration(event.preparationMinutes) &&
       isDuration(event.arrivalLeadMinutes) &&

@@ -70,12 +70,12 @@ export function renderCalendarPage(state) {
     eventList.className = "calendar-day-events";
     for (const event of events) {
       const eventButton = actionButton(
-        `${formatEventTime(event)} ${event.title}`,
-        `calendar-event calendar-event-${event.type}${event.completed ? " is-completed" : ""}`,
+        `${formatEventTime(event)} ${event.title}${event.notificationsEnabled === false ? "（通知OFF）" : ""}`,
+        `calendar-event calendar-event-${event.type}${event.completed ? " is-completed" : ""}${event.notificationsEnabled === false ? " is-notification-disabled" : ""}`,
         "show-calendar-event",
       );
       eventButton.dataset.eventId = event.id;
-      eventButton.title = `${event.type === "appointment" ? "予定" : "締切・期限"}: ${event.title}`;
+      eventButton.title = `${event.type === "appointment" ? "予定" : "締切・期限"}: ${event.title}${event.notificationsEnabled === false ? "（通知OFF）" : ""}`;
       eventList.append(eventButton);
     }
     cell.append(eventList);
@@ -155,6 +155,15 @@ function renderCalendarDialog(state) {
   appointmentFields.append(
     make("legend", "field-label", "予定の詳細"),
     field("開始時刻", timeInput("startTime", event?.type === "appointment" ? event.startTime : "")),
+    field(
+      "予定の長さ（分）",
+      numberInput(
+        "durationMinutes",
+        event?.type === "appointment" ? event.durationMinutes ?? 60 : 60,
+        1,
+      ),
+      "Google Calendar同期時の所要時間です。初期値は60分です。",
+    ),
     field(
       "移動時間（分）",
       numberInput("travelMinutes", event?.type === "appointment" ? event.travelMinutes : 0),
@@ -269,12 +278,14 @@ function renderEventDetailsDialog(state) {
   info.append(
     detailRow("日付", formatDate(event.date)),
     detailRow(event.type === "appointment" ? "開始時刻" : "締切時刻", formatEventTime(event)),
+    detailRow("通知", event.notificationsEnabled === false ? "OFF" : "ON"),
   );
   if (event.type === "appointment") {
     if (event.location) {
       info.append(detailRow("場所", event.location));
     }
     info.append(
+      detailRow("予定の長さ", `${event.durationMinutes}分`),
       detailRow("移動時間", `${event.travelMinutes}分`),
       detailRow("準備時間", `${event.preparationMinutes}分`),
       detailRow("到着希望", `${event.arrivalLeadMinutes}分前`),
@@ -283,7 +294,7 @@ function renderEventDetailsDialog(state) {
     const reminderLabels = event.notificationOffsets.map(
       (offset) => DEADLINE_OFFSETS.find(([value]) => value === offset)?.[1] ?? offset,
     );
-    info.append(detailRow("通知設定", reminderLabels.join("、") || "なし"));
+    info.append(detailRow("通知タイミング", reminderLabels.join("、") || "なし"));
   }
   const reminderSchedule = getCalendarReminderSchedule(event);
   const reminderText = reminderSchedule.length
@@ -370,11 +381,11 @@ function timeInput(name, value) {
   return input;
 }
 
-function numberInput(name, value) {
+function numberInput(name, value, min = 0) {
   const input = document.createElement("input");
   input.type = "number";
   input.name = name;
-  input.min = "0";
+  input.min = String(min);
   input.max = "1440";
   input.step = "1";
   input.value = String(value);

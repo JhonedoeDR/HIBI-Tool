@@ -286,6 +286,9 @@ function renderTodoMeta(todo, notStarted) {
   } else {
     meta.append(element("span", "", "期限なし"));
   }
+  if (todo.notificationsEnabled === false) {
+    meta.append(element("span", "notification-disabled", "通知OFF"));
+  }
   const nextReminder = getTodoReminderSchedule(todo)[0];
   if (nextReminder) {
     meta.append(
@@ -391,7 +394,7 @@ function renderTodoDialog(state) {
   const details = element("details", "advanced-fields");
   details.open = state.todoDraft !== null;
   details.append(
-    element("summary", "", "詳細設定（親Todo・ルーティン周期・チェックリスト・リンク）"),
+    element("summary", "", "詳細設定（通知・親Todo・ルーティン周期・チェックリスト・リンク）"),
   );
   const notificationOption = element("label", "reminder-option");
   const notificationToggle = element("input", "");
@@ -563,7 +566,7 @@ function renderChildTodoDialog(state) {
   );
 
   const details = element("details", "advanced-fields");
-  details.append(element("summary", "", "詳細設定（ルーティン周期・チェックリスト・リンク）"));
+  details.append(element("summary", "", "詳細設定（通知・ルーティン周期・チェックリスト・リンク）"));
   const notificationOption = element("label", "reminder-option");
   const notificationToggle = element("input", "");
   notificationToggle.type = "checkbox";

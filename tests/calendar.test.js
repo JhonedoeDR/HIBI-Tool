@@ -34,12 +34,44 @@ test("creates appointment and deadline records with normalized values", () => {
   );
 
   assert.equal(appointment.title, "Dentist");
+  assert.equal(appointment.durationMinutes, 60);
   assert.equal(appointment.travelMinutes, 25);
   assert.equal(appointment.location, "Clinic");
   assert.equal(appointment.notificationsEnabled, true);
   assert.deepEqual(deadline.notificationOffsets, ["1d", "30m"]);
   assert.equal(deadline.completed, false);
   assert.equal(deadline.completedAt, null);
+});
+
+test("supports a configurable appointment duration for calendar synchronization", () => {
+  const event = createCalendarEvent({
+    type: "appointment",
+    title: "Meeting",
+    date: "2026-11-18",
+    startTime: "10:30",
+    durationMinutes: "90",
+    travelMinutes: "0",
+    preparationMinutes: "0",
+    arrivalLeadMinutes: "0",
+  });
+
+  assert.equal(event.durationMinutes, 90);
+  for (const durationMinutes of ["0", "1441", "1.5", "invalid"]) {
+    assert.throws(
+      () =>
+        createCalendarEvent({
+          type: "appointment",
+          title: "Invalid duration",
+          date: "2026-11-18",
+          startTime: "10:30",
+          durationMinutes,
+          travelMinutes: "0",
+          preparationMinutes: "0",
+          arrivalLeadMinutes: "0",
+        }),
+      /予定の長さは1〜1440分/,
+    );
+  }
 });
 
 test("supports disabling notifications on an individual calendar event", () => {

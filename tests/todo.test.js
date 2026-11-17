@@ -402,7 +402,7 @@ test("schema migration adds parent links and calendar events inherit child Todo 
   assert.equal(migrated.todos[0].notificationsEnabled, true);
   assert.equal(migrated.todos[1].childOrder, 0);
   assert.equal(migrated.todos[1].displayGroup, 1);
-  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 8);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 9);
 
   const event = createCalendarEvent(
     {
@@ -452,7 +452,7 @@ test("schema v6 gives legacy routine Todos a daily rule and advances missed date
     anchorDate: "2026-11-15",
   });
   assert.equal(migrated.todos[0].dueDate, "2026-11-16");
-  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 8);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 9);
 });
 
 test("schema v7 data keeps existing reminders enabled during migration", () => {
@@ -479,7 +479,33 @@ test("schema v7 data keeps existing reminders enabled during migration", () => {
 
   assert.equal(migrated.todos[0].notificationsEnabled, true);
   assert.equal(migrated.calendarEvents[0].notificationsEnabled, true);
-  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 8);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 9);
+});
+
+test("schema v8 adds the default appointment duration", () => {
+  const legacyAppointment = createCalendarEvent({
+    type: "appointment",
+    title: "Existing appointment",
+    date: "2026-11-18",
+    startTime: "10:00",
+    travelMinutes: "0",
+    preparationMinutes: "0",
+    arrivalLeadMinutes: "0",
+  });
+  delete legacyAppointment.durationMinutes;
+  const storage = memoryStorage({
+    [APP_STORAGE_KEY]: JSON.stringify({
+      schemaVersion: 8,
+      todos: [],
+      game: createInitialGameState(),
+      calendarEvents: [legacyAppointment],
+    }),
+  });
+
+  const migrated = loadAppState(storage, "2026-11-16");
+
+  assert.equal(migrated.calendarEvents[0].durationMinutes, 60);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 9);
 });
 
 test("repository rejects missing parents and cyclic Todo relationships", () => {

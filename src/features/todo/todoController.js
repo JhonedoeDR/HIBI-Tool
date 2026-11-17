@@ -735,6 +735,7 @@ export function startTodoApp(root) {
         date: String(formData.get("date") ?? ""),
         notificationsEnabled: formData.has("notificationsEnabled"),
         startTime: String(formData.get("startTime") ?? ""),
+        durationMinutes: String(formData.get("durationMinutes") ?? ""),
         travelMinutes: String(formData.get("travelMinutes") ?? ""),
         preparationMinutes: String(formData.get("preparationMinutes") ?? ""),
         arrivalLeadMinutes: String(formData.get("arrivalLeadMinutes") ?? ""),

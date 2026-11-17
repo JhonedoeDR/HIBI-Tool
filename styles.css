@@ -481,6 +481,11 @@ textarea:focus-visible {
   font-weight: 700;
 }
 
+.notification-disabled {
+  color: #ad4b37;
+  font-weight: 700;
+}
+
 .todo-actions {
   display: flex;
   gap: 2px;
@@ -1358,6 +1363,10 @@ textarea:focus-visible {
 .calendar-event.is-completed {
   opacity: 0.58;
   text-decoration: line-through;
+}
+
+.calendar-event.is-notification-disabled {
+  border: 1px dashed currentColor;
 }
 
 .calendar-note {

@@ -48,6 +48,7 @@ export function createCalendarEvent(input, { id = crypto.randomUUID(), now = new
     return {
       ...common,
       startTime: normalizeTime(input.startTime, "開始時刻"),
+      durationMinutes: normalizeEventDuration(input.durationMinutes ?? 60),
       travelMinutes: normalizeDuration(input.travelMinutes, "移動時間"),
       preparationMinutes: normalizeDuration(input.preparationMinutes, "準備時間"),
       arrivalLeadMinutes: normalizeDuration(input.arrivalLeadMinutes, "到着希望時間"),
@@ -153,6 +154,14 @@ function normalizeDuration(value, label) {
   const duration = Number(value);
   if (!Number.isSafeInteger(duration) || duration < 0 || duration > 1440) {
     throw new CalendarValidationError(`${label}は0〜1440分で入力してください。`);
+  }
+  return duration;
+}
+
+function normalizeEventDuration(value) {
+  const duration = Number(value);
+  if (!Number.isSafeInteger(duration) || duration < 1 || duration > 1440) {
+    throw new CalendarValidationError("予定の長さは1〜1440分で入力してください。");
   }
   return duration;
 }
