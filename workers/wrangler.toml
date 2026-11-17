@@ -1,6 +1,7 @@
 name = "hibi-tool-notification-dispatcher"
 main = "./notification-dispatcher.js"
 compatibility_date = "2026-11-16"
+workers_dev = false
 
 [triggers]
 crons = ["* * * * *", "0 0 * * *"]
