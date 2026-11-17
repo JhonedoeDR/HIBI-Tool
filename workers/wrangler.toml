@@ -8,5 +8,5 @@ crons = ["* * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "hibi-tool-notifications"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "a7dd8a32-dc4f-4608-ac84-4846ec81e5f1"
 migrations_dir = "../migrations"
