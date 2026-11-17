@@ -2,7 +2,7 @@ import { validateNotificationSyncPayload } from "./notificationSyncService.js";
 
 export async function persistNotificationSnapshot(
   database,
-  { deviceId, credentialHash, fcmToken, payload, now = new Date() },
+  { deviceId, fcmToken, payload, now = new Date() },
 ) {
   if (
     !database ||
@@ -15,9 +15,6 @@ export async function persistNotificationSnapshot(
     typeof deviceId !== "string" ||
     deviceId.length === 0 ||
     deviceId.length > 128 ||
-    typeof credentialHash !== "string" ||
-    credentialHash.length === 0 ||
-    credentialHash.length > 128 ||
     typeof fcmToken !== "string" ||
     fcmToken.length === 0 ||
     fcmToken.length > 4096 ||
@@ -33,14 +30,13 @@ export async function persistNotificationSnapshot(
     database
       .prepare(
         `INSERT INTO notification_devices (
-          device_id, credential_hash, fcm_token, created_at_ms, updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?)
+          device_id, fcm_token, created_at_ms, updated_at_ms
+        ) VALUES (?, ?, ?, ?)
         ON CONFLICT(device_id) DO UPDATE SET
-          credential_hash = excluded.credential_hash,
           fcm_token = excluded.fcm_token,
           updated_at_ms = excluded.updated_at_ms`,
       )
-      .bind(deviceId, credentialHash, fcmToken, nowMs, nowMs),
+      .bind(deviceId, fcmToken, nowMs, nowMs),
     database
       .prepare(
         `DELETE FROM scheduled_notifications
@@ -79,4 +75,52 @@ export async function persistNotificationSnapshot(
   }
 
   return database.batch(statements);
+}
+
+export async function consumeNotificationSyncQuota(
+  database,
+  { deviceId, fcmToken, now = new Date() },
+) {
+  if (
+    !database ||
+    typeof database.prepare !== "function" ||
+    typeof deviceId !== "string" ||
+    deviceId.length === 0 ||
+    deviceId.length > 128 ||
+    typeof fcmToken !== "string" ||
+    fcmToken.length === 0 ||
+    fcmToken.length > 4096 ||
+    !(now instanceof Date) ||
+    Number.isNaN(now.valueOf())
+  ) {
+    throw new TypeError("通知同期の登録情報が正しくありません。");
+  }
+
+  const nowMs = now.getTime();
+  const windowStartMs = Math.floor(nowMs / 60_000) * 60_000;
+  const result = await database
+    .prepare(
+      `INSERT INTO notification_devices (
+        device_id, fcm_token, created_at_ms, updated_at_ms, sync_window_ms, sync_count
+      ) VALUES (?, ?, ?, ?, ?, 1)
+      ON CONFLICT(device_id) DO UPDATE SET
+        fcm_token = excluded.fcm_token,
+        updated_at_ms = excluded.updated_at_ms,
+        sync_count = CASE
+          WHEN notification_devices.sync_window_ms = excluded.sync_window_ms
+            THEN notification_devices.sync_count + 1
+          ELSE 1
+        END,
+        sync_window_ms = excluded.sync_window_ms
+      WHERE notification_devices.sync_window_ms != excluded.sync_window_ms
+         OR notification_devices.sync_count < 30
+      RETURNING sync_count`,
+    )
+    .bind(deviceId, fcmToken, nowMs, nowMs, windowStartMs)
+    .all();
+
+  if (!Array.isArray(result?.results)) {
+    throw new Error("通知同期の利用回数を確認できませんでした。");
+  }
+  return result.results.length === 1;
 }

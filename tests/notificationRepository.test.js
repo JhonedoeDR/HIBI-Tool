@@ -25,7 +25,6 @@ test("notification snapshot persistence replaces pending jobs in one D1 batch", 
   const now = new Date("2026-11-16T08:00:00.000Z");
   const results = await persistNotificationSnapshot(database, {
     deviceId: "device-1",
-    credentialHash: "hashed-secret",
     fcmToken: "fcm-token",
     now,
     payload: {
@@ -66,7 +65,6 @@ test("invalid notification snapshots are rejected before any database writes", a
   await assert.rejects(
     persistNotificationSnapshot(database, {
       deviceId: "device-1",
-      credentialHash: "hashed-secret",
       fcmToken: "fcm-token",
       payload: {
         schemaVersion: 1,
