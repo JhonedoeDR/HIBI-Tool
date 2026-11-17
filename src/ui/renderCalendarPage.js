@@ -134,6 +134,17 @@ function renderCalendarDialog(state) {
     field("名前", textInput("title", event?.title ?? "", true, "calendar-event-title")),
     field("日付", dateInput("date", event?.date ?? state.calendarDefaultDate)),
   );
+  const notificationOption = document.createElement("label");
+  notificationOption.className = "reminder-option";
+  const notificationToggle = document.createElement("input");
+  notificationToggle.type = "checkbox";
+  notificationToggle.name = "notificationsEnabled";
+  notificationToggle.checked = event?.notificationsEnabled ?? true;
+  notificationOption.append(
+    notificationToggle,
+    document.createTextNode("この予定・締切の通知を有効にする"),
+  );
+  fields.append(notificationOption);
   const todoLinks = renderTodoLinks(state.todos, event?.todoIds ?? []);
 
   const appointmentFields = document.createElement("fieldset");

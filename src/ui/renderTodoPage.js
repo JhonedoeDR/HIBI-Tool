@@ -393,7 +393,18 @@ function renderTodoDialog(state) {
   details.append(
     element("summary", "", "詳細設定（親Todo・ルーティン周期・チェックリスト・リンク）"),
   );
+  const notificationOption = element("label", "reminder-option");
+  const notificationToggle = element("input", "");
+  notificationToggle.type = "checkbox";
+  notificationToggle.name = "notificationsEnabled";
+  notificationToggle.checked =
+    draft.notificationsEnabled ?? todo?.notificationsEnabled ?? true;
+  notificationOption.append(
+    notificationToggle,
+    document.createTextNode("このTodoの通知を有効にする"),
+  );
   details.append(
+    notificationOption,
     parentTodoField(todo, state.todos, draft.parentId ?? todo?.parentId ?? ""),
     routineFields(
       draft.routineRule ?? todo?.routineRule,
@@ -553,7 +564,17 @@ function renderChildTodoDialog(state) {
 
   const details = element("details", "advanced-fields");
   details.append(element("summary", "", "詳細設定（ルーティン周期・チェックリスト・リンク）"));
+  const notificationOption = element("label", "reminder-option");
+  const notificationToggle = element("input", "");
+  notificationToggle.type = "checkbox";
+  notificationToggle.name = "notificationsEnabled";
+  notificationToggle.checked = true;
+  notificationOption.append(
+    notificationToggle,
+    document.createTextNode("このTodoの通知を有効にする"),
+  );
   details.append(
+    notificationOption,
     routineFields(
       null,
       state.todoDraft?.category ?? parent?.category ?? state.category,

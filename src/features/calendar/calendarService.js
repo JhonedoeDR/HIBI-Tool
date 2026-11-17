@@ -20,6 +20,11 @@ export function createCalendarEvent(input, { id = crypto.randomUUID(), now = new
   if (title.length > 160) {
     throw new CalendarValidationError("名前は160文字以内で入力してください。");
   }
+  const notificationsEnabled =
+    input.notificationsEnabled === undefined ? true : input.notificationsEnabled;
+  if (typeof notificationsEnabled !== "boolean") {
+    throw new CalendarValidationError("通知設定が正しくありません。");
+  }
 
   const timestamp = now.toISOString();
   const todoIds = input.todoIds ?? [];
@@ -31,6 +36,7 @@ export function createCalendarEvent(input, { id = crypto.randomUUID(), now = new
     type,
     title,
     date,
+    notificationsEnabled,
     todoIds: [...new Set(todoIds)],
     completed: false,
     completedAt: null,

@@ -36,9 +36,35 @@ test("creates appointment and deadline records with normalized values", () => {
   assert.equal(appointment.title, "Dentist");
   assert.equal(appointment.travelMinutes, 25);
   assert.equal(appointment.location, "Clinic");
+  assert.equal(appointment.notificationsEnabled, true);
   assert.deepEqual(deadline.notificationOffsets, ["1d", "30m"]);
   assert.equal(deadline.completed, false);
   assert.equal(deadline.completedAt, null);
+});
+
+test("supports disabling notifications on an individual calendar event", () => {
+  const event = createCalendarEvent({
+    type: "deadline",
+    title: "No reminder",
+    date: "2026-11-18",
+    dueTime: "17:00",
+    notificationOffsets: ["1h"],
+    notificationsEnabled: false,
+  });
+
+  assert.equal(event.notificationsEnabled, false);
+  assert.throws(
+    () =>
+      createCalendarEvent({
+        type: "deadline",
+        title: "Invalid reminder",
+        date: "2026-11-18",
+        dueTime: "17:00",
+        notificationOffsets: [],
+        notificationsEnabled: "false",
+      }),
+    CalendarValidationError,
+  );
 });
 
 test("deduplicates calendar Todo links and rejects malformed link lists", () => {

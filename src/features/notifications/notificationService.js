@@ -8,7 +8,7 @@ const DEADLINE_OFFSETS = [
 ];
 
 export function getTodoReminderSchedule(todo, now = new Date()) {
-  if (todo.completed) {
+  if (todo.completed || todo.notificationsEnabled === false) {
     return [];
   }
   const reminders = [];
@@ -37,7 +37,7 @@ export function getTodoReminderSchedule(todo, now = new Date()) {
 }
 
 export function getCalendarReminderSchedule(event, now = new Date()) {
-  if (event.completed) {
+  if (event.completed || event.notificationsEnabled === false) {
     return [];
   }
   const reminders = [];

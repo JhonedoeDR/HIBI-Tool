@@ -34,6 +34,7 @@ function todo(id, values = {}) {
     displayGroup: null,
     routineRule: null,
     routineLastCompletedAt: null,
+    notificationsEnabled: true,
     checklist: [],
     links: [],
     completed: false,
@@ -73,11 +74,35 @@ test("creates a Todo with normalized optional dates and checklist", () => {
   assert.equal(created.title, "Read");
   assert.equal(created.startDate, null);
   assert.equal(created.dueDate, "2025-05-04");
+  assert.equal(created.notificationsEnabled, true);
   assert.equal(created.parentId, null);
   assert.equal(created.childDisplayMode, "all");
   assert.equal(created.displayGroup, null);
   assert.equal(created.checklist.length, 1);
   assert.equal(created.checklist[0].completed, false);
+});
+
+test("supports disabling notifications on an individual Todo", () => {
+  const created = createTodo({
+    title: "No reminder",
+    category: "main",
+    startDate: "",
+    dueDate: "2025-05-04",
+    notificationsEnabled: false,
+  });
+
+  assert.equal(created.notificationsEnabled, false);
+  assert.throws(
+    () =>
+      createTodo({
+        title: "Invalid reminder",
+        category: "main",
+        startDate: "",
+        dueDate: "",
+        notificationsEnabled: "false",
+      }),
+    /通知設定が正しくありません/,
+  );
 });
 
 test("creates a routine with a normalized recurrence and default scheduled date", () => {
@@ -353,12 +378,14 @@ test("schema migration adds parent links and calendar events inherit child Todo 
   delete legacyTodo.displayGroup;
   delete legacyTodo.routineRule;
   delete legacyTodo.routineLastCompletedAt;
+  delete legacyTodo.notificationsEnabled;
   const legacyChild = todo("legacy-child", { parentId: "legacy" });
   delete legacyChild.childOrder;
   delete legacyChild.childDisplayMode;
   delete legacyChild.displayGroup;
   delete legacyChild.routineRule;
   delete legacyChild.routineLastCompletedAt;
+  delete legacyChild.notificationsEnabled;
   storage.setItem(
     APP_STORAGE_KEY,
     JSON.stringify({
@@ -372,9 +399,10 @@ test("schema migration adds parent links and calendar events inherit child Todo 
   assert.equal(migrated.todos[0].parentId, null);
   assert.equal(migrated.todos[0].childDisplayMode, "all");
   assert.equal(migrated.todos[0].displayGroup, null);
+  assert.equal(migrated.todos[0].notificationsEnabled, true);
   assert.equal(migrated.todos[1].childOrder, 0);
   assert.equal(migrated.todos[1].displayGroup, 1);
-  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 7);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 8);
 
   const event = createCalendarEvent(
     {
@@ -391,11 +419,12 @@ test("schema migration adds parent links and calendar events inherit child Todo 
     {
       todos: [todo("parent"), todo("child", { parentId: "parent" })],
       game: createInitialGameState(),
-      calendarEvents: [event],
+      calendarEvents: [{ ...event, notificationsEnabled: undefined }],
     },
     storage,
   );
   assert.deepEqual(saved.calendarEvents[0].todoIds, ["parent", "child"]);
+  assert.equal(saved.calendarEvents[0].notificationsEnabled, true);
 });
 
 test("schema v6 gives legacy routine Todos a daily rule and advances missed dates", () => {
@@ -423,7 +452,34 @@ test("schema v6 gives legacy routine Todos a daily rule and advances missed date
     anchorDate: "2026-11-15",
   });
   assert.equal(migrated.todos[0].dueDate, "2026-11-16");
-  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 7);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 8);
+});
+
+test("schema v7 data keeps existing reminders enabled during migration", () => {
+  const legacyTodo = todo("legacy-notification");
+  delete legacyTodo.notificationsEnabled;
+  const legacyEvent = createCalendarEvent({
+    type: "deadline",
+    title: "Existing deadline",
+    date: "2026-11-18",
+    dueTime: "17:00",
+    notificationOffsets: ["1h"],
+  });
+  delete legacyEvent.notificationsEnabled;
+  const storage = memoryStorage({
+    [APP_STORAGE_KEY]: JSON.stringify({
+      schemaVersion: 7,
+      todos: [legacyTodo],
+      game: createInitialGameState(),
+      calendarEvents: [legacyEvent],
+    }),
+  });
+
+  const migrated = loadAppState(storage, "2026-11-16");
+
+  assert.equal(migrated.todos[0].notificationsEnabled, true);
+  assert.equal(migrated.calendarEvents[0].notificationsEnabled, true);
+  assert.equal(JSON.parse(storage.values.get(APP_STORAGE_KEY)).schemaVersion, 8);
 });
 
 test("repository rejects missing parents and cyclic Todo relationships", () => {

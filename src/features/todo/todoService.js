@@ -29,6 +29,8 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
   const category = input.category;
   const startDate = normalizeDate(input.startDate, "開始日");
   let dueDate = normalizeDate(input.dueDate, "期限");
+  const notificationsEnabled =
+    input.notificationsEnabled === undefined ? true : input.notificationsEnabled;
   const parentId =
     input.parentId === "" || input.parentId === undefined || input.parentId === null
       ? null
@@ -36,6 +38,9 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
 
   if (!title) {
     throw new TodoValidationError("タスク名を入力してください。");
+  }
+  if (typeof notificationsEnabled !== "boolean") {
+    throw new TodoValidationError("通知設定が正しくありません。");
   }
   if (parentId !== null && (typeof parentId !== "string" || parentId === id)) {
     throw new TodoValidationError("親Todoの指定が正しくありません。");
@@ -86,6 +91,7 @@ export function createTodo(input, { id = crypto.randomUUID(), now = new Date() }
     category,
     startDate,
     dueDate,
+    notificationsEnabled,
     parentId,
     childOrder,
     childDisplayMode,

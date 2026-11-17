@@ -59,6 +59,41 @@ test("Todo reminders at the same time are grouped and completed Todos are ignore
   );
 });
 
+test("disabled Todo and calendar events produce no reminders", () => {
+  const now = new Date(2026, 10, 16, 8);
+  assert.deepEqual(
+    getTodoReminderSchedule(
+      {
+        id: "todo-no-reminder",
+        title: "No reminder",
+        startDate: "2026-11-18",
+        notificationsEnabled: false,
+        completed: false,
+      },
+      now,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    getCalendarReminderSchedule(
+      {
+        id: "appointment-no-reminder",
+        type: "appointment",
+        title: "No reminder",
+        date: "2026-11-18",
+        startTime: "10:30",
+        travelMinutes: 25,
+        preparationMinutes: 15,
+        arrivalLeadMinutes: 5,
+        notificationsEnabled: false,
+        completed: false,
+      },
+      now,
+    ),
+    [],
+  );
+});
+
 test("appointment notifications account for preparation, travel, and desired arrival", () => {
   const reminders = getCalendarReminderSchedule(
     {

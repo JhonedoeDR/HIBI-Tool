@@ -8,7 +8,7 @@ import {
 export const APP_STORAGE_KEY = "daily-tool.state.v1";
 export const TODO_STORAGE_KEY = "daily-tool.todos.v1";
 export const MAX_AUTOMATIC_BACKUPS = 10;
-const APP_SCHEMA_VERSION = 7;
+const APP_SCHEMA_VERSION = 8;
 
 export class TodoStorageError extends Error {
   constructor(message, options) {
@@ -177,7 +177,7 @@ function parseAppState(raw) {
     });
   }
   if (
-    ![1, 2, 3, 4, 5, 6, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
+    ![1, 2, 3, 4, 5, 6, 7, APP_SCHEMA_VERSION].includes(parsed?.schemaVersion) ||
     !Array.isArray(parsed.todos) ||
     !parsed.todos.every(isTodoRecord) ||
     (parsed.calendarEvents !== undefined &&
@@ -248,6 +248,7 @@ function normalizeAppData(data) {
         : null;
     return {
       ...todo,
+      notificationsEnabled: todo.notificationsEnabled ?? true,
       parentId: todo.parentId || null,
       childOrder: todo.parentId ? todo.childOrder ?? null : null,
       childDisplayMode: todo.childDisplayMode ?? "all",
@@ -279,6 +280,7 @@ function normalizeAppData(data) {
     game,
     calendarEvents: calendarEvents.map((event) => ({
       ...event,
+      notificationsEnabled: event.notificationsEnabled ?? true,
       todoIds: expandLinkedTodoIds(normalizedTodos, event.todoIds),
     })),
   };
@@ -378,6 +380,8 @@ function isCalendarEvent(event) {
     typeof event.title === "string" &&
     isDateKey(event.date) &&
     typeof event.completed === "boolean" &&
+    (event.notificationsEnabled === undefined ||
+      typeof event.notificationsEnabled === "boolean") &&
     (event.completedAt === null || typeof event.completedAt === "string") &&
     typeof event.createdAt === "string" &&
     typeof event.updatedAt === "string" &&
@@ -466,6 +470,8 @@ function isTodoRecord(todo) {
     typeof todo === "object" &&
     typeof todo.id === "string" &&
     typeof todo.title === "string" &&
+    (todo.notificationsEnabled === undefined ||
+      typeof todo.notificationsEnabled === "boolean") &&
     (todo.parentId === undefined || todo.parentId === null || typeof todo.parentId === "string") &&
     (todo.childOrder === undefined ||
       todo.childOrder === null ||

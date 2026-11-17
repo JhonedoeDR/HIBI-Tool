@@ -35,6 +35,7 @@ function todo(id) {
     displayGroup: null,
     routineRule: null,
     routineLastCompletedAt: null,
+    notificationsEnabled: true,
     checklist: [],
     links: [],
     completed: false,
